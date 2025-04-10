@@ -1,0 +1,85 @@
+{% extends "pm_base.html" %}
+
+{% block title %}{{ title }} - {{ super() }}{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Complete Job Card: #{{ job_card.job_number }}</h1>
+
+<div class="card mb-4">
+    <div class="card-header">Job Card Details</div>
+    <div class="card-body">
+        <p><strong>Equipment:</strong> {{ job_card.equipment_ref.name }} ({{ job_card.equipment_ref.type }})</p>
+        <p><strong>Description:</strong> {{ job_card.description }}</p>
+        <p><strong>Technician:</strong> {{ job_card.technician or 'N/A' }}</p>
+        <p><strong>Status:</strong> <span class="badge bg-warning">{{ job_card.status }}</span></p>
+        <p><strong>OEM Required:</strong> {{ 'Yes' if job_card.oem_required else 'No' }}</p>
+        <p><strong>Kit Required:</strong> {{ 'Yes' if kit_required else 'No' }}</p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">Enter Completion Details</div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('planned_maintenance.complete_job_card', id=job_card.id) }}">
+            {# CSRF Token #}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+
+            <div class="mb-3">
+                <label for="checkout_datetime" class="form-label">Machine Check-out Time <span class="text-danger">*</span></label>
+                <input type="datetime-local" class="form-control" id="checkout_datetime" name="checkout_datetime" required
+                       value="{{ job_card.start_datetime.strftime('%Y-%m-%dT%H:%M') if job_card.start_datetime else '' }}">
+                <div class="form-text">When the machine was checked out for maintenance.</div>
+            </div>
+
+            <div class="mb-3">
+                <label for="checkin_datetime" class="form-label">Machine Check-in Time <span class="text-danger">*</span></label>
+                <input type="datetime-local" class="form-control" id="checkin_datetime" name="checkin_datetime" required
+                       value="{{ job_card.end_datetime.strftime('%Y-%m-%dT%H:%M') if job_card.end_datetime else '' }}">
+                <div class="form-text">When the machine was checked back in after maintenance.</div>
+            </div>
+            <div class="mb-3">
+                <label for="comments" class="form-label">Completion Comments (Optional)</label>
+                <textarea class="form-control" id="comments" name="comments" rows="3" placeholder="Add any notes or comments..."></textarea>
+            </div>
+            <hr>
+            <h5 class="mb-3">Parts Used (Optional)</h5>
+            <p class="form-text">Select the parts used and enter the quantity for each. Leave blank if no parts were used or for unused rows.</p>
+
+            {% for i in range(5) %}
+            <div class="row mb-2 align-items-end">
+                <div class="col-md-7">
+                     <label for="part_id_{{i}}" class="form-label visually-hidden">Part {{ i+1 }}</label>
+                     <select class="form-select form-select-sm" id="part_id_{{i}}" name="part_id">
+                        <option value="" selected>-- Select Part {{ i+1 }} --</option>
+                        {% for part in parts %}
+                           <option value="{{ part.id }}">
+                               {{ part.name }} ({{ part.store }}) - Stock: {{ part.current_stock }}
+                           </option>
+                        {% endfor %}
+                     </select>
+                </div>
+                 <div class="col-md-4">
+                    <label for="quantity_{{i}}" class="form-label visually-hidden">Quantity {{ i+1 }}</label>
+                    <input type="number" class="form-control form-control-sm" id="quantity_{{i}}" name="quantity" min="1" placeholder="Quantity {{ i+1 }}">
+                </div>
+            </div>
+            {% endfor %}
+
+            <hr class="mt-4">
+            <div class="row align-items-center">
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-success">Complete Job Card</button>
+                </div>
+                <div class="col-auto">
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" id="send_whatsapp" name="send_whatsapp" checked>
+                        <label class="form-check-label" for="send_whatsapp">Send WhatsApp?</label>
+                    </div>
+                </div>
+            </div>
+            <a href="{{ url_for('planned_maintenance.dashboard') }}" class="btn btn-secondary">Cancel</a>
+        </form>
+    </div>
+</div>
+
+{% endblock %}

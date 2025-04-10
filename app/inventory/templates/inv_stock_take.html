@@ -1,0 +1,59 @@
+{% extends "inv_base.html" %}
+
+{% block title %}{{ title }} - {{ super() }}{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">{{ title }}</h1>
+<p class="lead">Enter the actual physical stock count for each part. The system will record any discrepancies.</p>
+
+{% if parts %}
+<form method="POST" action="{{ url_for('inventory.stock_take') }}">
+     <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+    <div class="table-responsive">
+        <table class="table table-bordered table-hover">
+            <thead class="table-light">
+                <tr>
+                    <th>Part Name</th>
+                    <th>Store</th>
+                    <th>Supplier</th>
+                    <th>Current System Stock</th>
+                    <th>Actual Physical Stock</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for part in parts %}
+                <tr>
+                    <td>
+                        {{ part.name }}
+                        {# Hidden input to send the part ID #}
+                        <input type="hidden" name="part_id" value="{{ part.id }}">
+                    </td>
+                    <td>{{ part.store }}</td>
+                     <td>{{ part.supplier.name if part.supplier else 'N/A' }}</td>
+                    <td>{{ part.current_stock }}</td>
+                    <td>
+                         {# Input for the actual stock count #}
+                         <input type="number" class="form-control form-control-sm"
+                                name="actual_stock"
+                                min="0"
+                                placeholder="Enter count"
+                               {# Pre-fill with current stock for convenience? Optional. #}
+                               {# value="{{ part.current_stock }}" #}
+                               >
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="mt-3 text-end">
+         <button type="submit" class="btn btn-primary btn-lg">Submit Stock Take</button>
+         <a href="{{ url_for('inventory.dashboard') }}" class="btn btn-secondary btn-lg">Cancel</a>
+    </div>
+</form>
+{% else %}
+    <p class="text-muted">No parts found in inventory to perform a stock take.</p>
+    <a href="{{ url_for('inventory.parts_list') }}" class="btn btn-success">Add Parts</a>
+{% endif %}
+
+{% endblock %}

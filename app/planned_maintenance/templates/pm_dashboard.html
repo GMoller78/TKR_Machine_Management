@@ -1,0 +1,281 @@
+{# tkr_system/app/templates/pm_dashboard.html #}
+{% extends "pm_base.html" %}
+
+{% block title %}Planned Maintenance Dashboard - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="mb-4">Planned Maintenance Dashboard</h1>
+
+    <!-- Urgent Alerts -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="alert alert-warning text-center" role="alert">
+                <strong>Note:</strong> Log usage and checklists daily to keep equipment statuses accurate. Tasks due soon or overdue are listed below.
+            </div>
+        </div>
+    </div>
+
+    <!-- Single Column Layout -->
+    <div class="row">
+        <div class="col-12">
+            <!-- Maintenance Tasks (Due Soon / Overdue) -->
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center bg-primary text-white">
+                    <span>Upcoming / Overdue Maintenance Tasks ({{ tasks|length }})</span>
+                    <div>
+                        <a href="{{ url_for('planned_maintenance.tasks_list') }}" class="btn btn-sm btn-light me-2">View All Tasks</a>
+                        <a href="{{ url_for('planned_maintenance.add_task') }}" class="btn btn-sm btn-light">Add Task</a>
+                    </div>
+                </div>
+                <div class="card-body p-0" style="max-height: 500px; overflow-y: auto;"> {# Remove padding for table #}
+                    {% if tasks %}
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover table-sm mb-0"> {# table-sm #}
+                                <thead>
+                                    <tr>
+                                        <th>Equipment</th>
+                                        <th>Task</th>
+                                        <th>Interval</th>
+                                        <th>Last Done</th> <!-- MODIFIED -->
+                                        <th>Next Due</th> <!-- MODIFIED -->
+                                        <th>Remaining / Info</th> <!-- MODIFIED -->
+                                        <th>Est. Time</th> <!-- NEW -->
+                                        <th>Status</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {# Remove the sort filter here - tasks list is now pre-sorted #}
+                                    {% for task in tasks %}
+                                        <tr class="{% if 'Overdue' in task.due_status %}table-danger
+                                                    {% elif 'Due Soon' in task.due_status %}table-warning
+                                                    {% elif 'Warning' in task.due_status %}table-info
+                                                    {% endif %}">
+                                            <td><small>{{ task.equipment_ref.code }} - {{ task.equipment_ref.name }}</small></td>
+                                            <td><small>{{ task.description | truncate(30) }}</small></td>
+                                            <td><small>{{ task.interval_value }} {{ task.interval_type | replace('hours', 'hrs') }}</small></td>
+                                            <td><small>{{ task.last_performed_info | replace('hours', 'hrs') or 'N/A' }}</small></td>
+                                            <td><small>{{ task.next_due_info | replace('hours', 'hrs') or 'N/A' }}</small></td>
+                                            <td><small>{{ task.due_info | replace('hours', 'hrs') or 'N/A' }}</small></td>
+                                            <td><small>{{ task.estimated_days_info or 'N/A' }}</small></td>
+                                            <td>
+                                                <span class="badge
+                                                    {% if 'Overdue' in task.due_status %}bg-danger
+                                                    {% elif 'Due Soon' in task.due_status %}bg-warning text-dark
+                                                    {% elif 'OK' in task.due_status %}bg-success
+                                                    {% elif 'Warning' in task.due_status %}bg-info text-dark
+                                                    {% else %}bg-secondary
+                                                    {% endif %}">
+                                                    {{ task.due_status }}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <form method="POST" action="{{ url_for('planned_maintenance.new_job_card_from_task', task_id=task.id) }}" class="d-inline">
+                                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                                                    <input type="text" name="technician" class="form-control form-control-sm d-inline-block" placeholder="Tech" style="width: 70px;" title="Assign Technician">
+                                                    <button type="submit" class="btn btn-sm btn-success" title="Create Job Card"><i class="bi bi-plus-circle-fill"></i></button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                       <div class="card-body text-center"> {# Add padding back if no tasks #}
+                            <p class="text-muted text-center">No tasks currently overdue or due soon. <a href="{{ url_for('planned_maintenance.tasks_list') }}">View all tasks.</a></p>
+                        </div>
+                    {% endif %}
+                </div>
+                 <div class="card-footer text-muted">
+                    <small>Shows tasks Overdue, Due Soon, or with Warnings. Log usage for accurate scheduling.</small>
+                </div>
+            </div>
+
+            <!-- Equipment Status (Keep as is) -->
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Equipment Status</span>
+                    <div> {# Group buttons #}
+                        <a href="{{ url_for('planned_maintenance.equipment_list') }}" class="btn btn-sm btn-outline-primary me-1">Manage Equip</a>
+                        <a href="{{ url_for('planned_maintenance.usage_logs') }}" class="btn btn-sm btn-outline-info me-1">View Usage</a>
+                        <a href="{{ url_for('planned_maintenance.checklist_logs') }}" class="btn btn-sm btn-outline-secondary">View Checklist</a>
+                     </div>
+                </div>
+                <div class="card-body p-0" style="max-height: 500px; overflow-y: auto;"> {# Remove padding #}
+                     {% if equipment %}
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover table-sm mb-0"> {# table-sm #}
+                                <thead>
+                                    <tr>
+                                        <th>Equipment</th>
+                                        <th>Type</th>
+                                        <th>Last Usage</th>
+                                        <th>Last Checklist</th>
+                                        {# <th>Checked Today</th> #} {# Less critical maybe? #}
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for eq in equipment %}
+                                        {% set last_check_date_obj = eq.latest_checklist.check_date if eq.latest_checklist else None %}
+                                        {% set last_check_date_str = last_check_date_obj.strftime('%Y-%m-%d') if last_check_date_obj else 'Never' %}
+                                        {% set checked_today = last_check_date_obj and last_check_date_obj.strftime('%Y-%m-%d') == today %}
+                                        <tr class="{% if eq.checklist_required and not checked_today and last_check_date_str != 'Never' %}table-danger{% endif %}">
+                                            <td><small>{{ eq.code }} - {{ eq.name }}</small></td>
+                                            <td><small>{{ eq.type }}</small></td>
+                                            <td>
+                                                <small>
+                                                {% if eq.latest_usage %}
+                                                    {{ eq.latest_usage.usage_value }} on {{ eq.latest_usage.log_date.strftime('%Y-%m-%d') }}
+                                                {% else %}
+                                                    Never
+                                                {% endif %}
+                                                </small>
+                                            </td>
+                                            <td>
+                                                <small>
+                                                {% if eq.latest_checklist %}
+                                                    <span class="badge {% if eq.latest_checklist.status == 'Go' %}bg-success{% elif eq.latest_checklist.status == 'Go But' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                                        {{ eq.latest_checklist.status }}
+                                                    </span> on {{ last_check_date_str }}
+                                                    {% if eq.checklist_required and not checked_today and last_check_date_str != 'Never' %}
+                                                        <span class="badge bg-danger ms-1">Needed Today</span>
+                                                    {% endif %}
+                                                {% else %}
+                                                    Never {% if eq.checklist_required %}<span class="badge bg-secondary ms-1">Required</span>{% endif %}
+                                                {% endif %}
+                                                </small>
+                                            </td>
+                                            {# <td>
+                                                {% if eq.checklist_required %}
+                                                <span class="badge {% if checked_today %}bg-success{% else %}bg-danger{% endif %}">
+                                                    {{ 'Yes' if checked_today else 'No' }}
+                                                </span>
+                                                {% else %}
+                                                <span class="badge bg-light text-dark">N/A</span>
+                                                {% endif %}
+                                            </td> #}
+                                            <td>
+                                                <!-- Button to trigger Usage Modal -->
+                                                <button type="button" class="btn btn-xs btn-info" data-bs-toggle="modal" data-bs-target="#usageModal-{{ eq.id }}" title="Log Usage">
+                                                    <i class="bi bi-speedometer2"></i> Log
+                                                </button>
+                                                <!-- Button to trigger Checklist Modal -->
+                                                {% if eq.checklist_required %}
+                                                    <button type="button" class="btn btn-xs {% if checked_today %}btn-success{% else %}btn-primary{% endif %}" data-bs-toggle="modal" data-bs-target="#checklistModal-{{ eq.id }}" title="Log Checklist">
+                                                        <i class="bi bi-check2-square"></i> Log
+                                                    </button>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                         <div class="card-body text-center"> {# Add padding back #}
+                            <p class="text-muted text-center">No equipment registered. <a href="{{ url_for('planned_maintenance.equipment_list') }}">Add some!</a></p>
+                        </div>
+                    {% endif %}
+                </div>
+                 <div class="card-footer text-muted">
+                    <small>Red highlight on row indicates checklist required but not completed today.</small>
+                </div>
+            </div>
+
+            <!-- Open Job Cards (Keep as is or adjust columns if needed) -->
+            <div class="card mb-4">
+                 <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Open Job Cards ({{ job_cards|length }})</span>
+                    {# Optional: Link to a dedicated Job Card list page #}
+                    {# <a href="{{ url_for('some_module.job_card_list') }}" class="btn btn-sm btn-outline-primary">View All Open JCs</a> #}
+                </div>
+                 <div class="card-body p-0"> {# Remove padding #}
+                    {% if job_cards %}
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover table-sm mb-0"> {# table-sm #}
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        {# <th>Created</th> #} {# Optional #}
+                                        <th>Equipment</th>
+                                        <th>Description</th>
+                                        <th>Due Date</th>
+                                        <th>Status</th>
+                                        <th>Technician</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for jc in job_cards %} 
+                                        <tr>
+                                            <td><small>{{ jc.job_number }}</small></td>
+                                            {# <td><small>{{ jc.start_datetime.strftime('%Y-%m-%d') if jc.start_datetime else 'N/A' }}</small></td> #}
+                                            <td><small>{{ jc.equipment_ref.code }} - {{ jc.equipment_ref.name }}</small></td>
+                                            <td><small>{{ jc.description | truncate(40) }}</small></td>
+                                            <td><small>{{ jc.due_date.strftime('%Y-%m-%d') if jc.due_date else 'Not Set' }}</small></td>
+                                            <td><small><span class="badge bg-warning">{{ jc.status }}</span></small></td>
+                                            <td><small>{{ jc.technician or 'Unassigned' }}</small></td>
+                                            <td>
+                                                <a href="{{ url_for('planned_maintenance.complete_job_card', id=jc.id) }}"
+                                                class="btn btn-success btn-xs" title="Complete Job Card"><i class="bi bi-check-lg"></i> Complete</a>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                         <div class="card-body text-center"> {# Add padding back #}
+                            <p class="text-muted mb-0">No open job cards.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Recent Activity (Keep as is) -->
+           <div class="card mb-4">
+                <div class="card-header">Recent Activity (Last {{ recent_activities|length }})</div>
+                <div class="card-body py-2" style="max-height: 400px; overflow-y: auto;"> {# Adjust padding #}
+                    {% if recent_activities %}
+                        <ul class="list-group list-group-flush">
+                            {% for activity in recent_activities %}
+                                <li class="list-group-item d-flex justify-content-between align-items-center px-0 py-1"> {# Adjust padding #}
+                                    <div>
+                                        <small>
+                                            <span class="text-muted me-2">{{ activity.timestamp.strftime('%Y-%m-%d %H:%M') }}</span> -
+                                            {{ activity.description | truncate(80)}}
+                                            {% if activity.type == 'checklist' %}
+                                                <span class="badge
+                                                    {% if activity.details.status == 'Go' %}bg-success
+                                                    {% elif activity.details.status == 'Go But' %}bg-warning text-dark
+                                                    {% else %}bg-danger{% endif %}">
+                                                    {{ activity.details.status }}
+                                                </span>
+                                            {% elif activity.type == 'usage' %}
+                                                <span class="badge bg-info">{{ activity.details.usage_value }}</span>
+                                            {% elif activity.type == 'job_card_created' %}
+                                                 ({# <span class="badge bg-primary">{{ activity.details.job_number }}</span> #})
+                                            {% elif activity.type == 'job_card_completed' %}
+                                                <span class="badge bg-success">Completed</span>
+                                            {% endif %}
+                                        </small>
+                                    </div>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="text-muted text-center mb-0">No recent planned maintenance activity recorded.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+      <!-- Modals for Usage and Checklist Logging (Keep as is) -->
+      {% include 'pm_modals.html' %} {# Assuming modals are moved to a separate file for cleanliness #}
+
+    </div>
+    {% endblock %}

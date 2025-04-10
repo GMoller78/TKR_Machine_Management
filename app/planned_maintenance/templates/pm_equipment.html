@@ -1,0 +1,86 @@
+{% extends "pm_base.html" %}
+
+{% block title %}Manage Equipment - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Manage Equipment</h1>
+    <button class="btn btn-success" type="button" data-bs-toggle="collapse" data-bs-target="#addEquipmentForm" aria-expanded="false" aria-controls="addEquipmentForm">
+        Add New Equipment
+    </button>
+</div>
+
+<!-- Add Equipment Form (Collapsible) -->
+<div class="collapse mb-4" id="addEquipmentForm">
+    <div class="card card-body">
+        <h2>Add New Equipment</h2>
+        <form method="POST" action="{{ url_for('planned_maintenance.add_equipment') }}">
+            {# Include CSRF token if using Flask-WTF: {{ form.hidden_tag() }}
+               Or generate manually if needed. #}
+             <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+             <div class="mb-3">
+                <label for="code" class="form-label">Machine Code</label>
+                <input type="text" class="form-control" id="code" name="code" required value="{{ current_code or '' }}">
+            </div>
+            <div class="mb-3">
+                <label for="name" class="form-label">Machine Name</label>
+                <input type="text" class="form-control" id="name" name="name" required value="{{ current_name or '' }}">
+            </div>
+
+            <div class="mb-3">
+                <label for="type" class="form-label">Machine Type</label>
+                <select class="form-select" id="type" name="type" required>
+                    <option value="" {% if not current_type %}selected{% endif %} disabled>Select Type...</option>
+                    <option value="Drilling" {% if current_type == 'Drilling' %}selected{% endif %}>Drilling</option>
+                    <option value="ROMPAD" {% if current_type == 'ROMPAD' %}selected{% endif %}>ROMPAD</option>
+                    <option value="Fleet" {% if current_type == 'Fleet' %}selected{% endif %}>Fleet</option>
+                    {# Add other types as needed #}
+                </select>
+            </div>
+
+            <div class="mb-3 form-check">
+                <input type="checkbox" class="form-check-input" id="checklist_required" name="checklist_required" {% if current_checklist %}checked{% endif %}>
+                <label class="form-check-label" for="checklist_required">Checklist Required?</label>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Add Equipment</button>
+        </form>
+    </div>
+</div>
+
+
+<!-- Equipment List -->
+<h2>Equipment List</h2>
+{% if equipment %}
+<div class="table-responsive">
+    <table class="table table-striped table-hover">
+        <thead>
+            <tr>
+                <th>Code</th>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Checklist Required</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in equipment %}
+            <tr>
+                <td>{{ item.code }}</td>
+                <td>{{ item.name }}</td>
+                <td>{{ item.type }}</td>
+                <td>{% if item.checklist_required %}Yes{% else %}No{% endif %}</td>
+                <td>
+                    <a href="#" class="btn btn-sm btn-info disabled">View</a> {# Placeholder for future view/edit link #}
+                    <a href="#" class="btn btn-sm btn-danger disabled">Remove</a> {# Placeholder for future remove action #}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+    <p class="text-muted">No equipment has been added yet.</p>
+{% endif %}
+
+{% endblock %}

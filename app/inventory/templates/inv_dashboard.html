@@ -1,0 +1,106 @@
+{% extends "inv_base.html" %}
+
+{% block title %}Inventory Dashboard - {{ super() }}{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Inventory Dashboard</h1>
+
+<div class="row">
+    <!-- Stock Levels By Store -->
+    <div class="col-lg-8 mb-4">
+        <div class="card">
+            <div class="card-header">Current Stock Levels by Store</div>
+            <div class="card-body">
+                {% if parts %}
+                    {% set stores = parts|map(attribute='store')|unique|list %}
+                    {% for store in stores | sort %}
+                        <h5 class="mt-3">{{ store }} Store</h5>
+                        <div class="table-responsive">
+                             <table class="table table-sm table-hover mb-3">
+                                <thead>
+                                    <tr>
+                                        <th>Part Name</th>
+                                        <th>Current Stock</th>
+                                        <th>Min Stock</th>
+                                        <th>Supplier</th>
+                                        <th>GET</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                {% for part in parts if part.store == store %}
+                                    <tr class="{{ 'table-warning' if part.current_stock < part.min_stock else '' }}">
+                                        <td>{{ part.name }}</td>
+                                        <td>{{ part.current_stock }}</td>
+                                        <td>{{ part.min_stock }}</td>
+                                        <td>{{ part.supplier.name if part.supplier else 'N/A' }}</td>
+                                        <td>{% if part.is_get %}Yes{% else %}No{% endif %}</td>
+                                    </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">No parts found in inventory.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar: Low Stock, Receive Stock & Transactions -->
+    <div class="col-lg-4 mb-4">
+        <!-- Low Stock Alerts -->
+        <div class="card mb-4">
+            <div class="card-header bg-danger text-white">Low Stock Alerts</div>
+             {% if low_stock %}
+                <ul class="list-group list-group-flush">
+                    {% for part in low_stock %}
+                    <li class="list-group-item list-group-item-warning d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>{{ part.name }}</strong> <small>({{ part.store }})</small>
+                        </div>
+                        <span class="badge bg-danger rounded-pill">{{ part.current_stock }} / {{ part.min_stock }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+             {% else %}
+              <div class="card-body">
+                <p class="text-muted">No parts are currently below minimum stock levels.</p>
+              </div>
+            {% endif %}
+        </div>
+
+        <!-- Quick Receive Stock Form -->
+        <div class="card mb-4">
+             <div class="card-header">Quick Receive Stock</div>
+             <div class="card-body">
+                 {% include 'inv_receive_stock_form.html' %} {# Include the separate form partial #}
+             </div>
+        </div>
+
+
+        <!-- Recent Transactions -->
+        <div class="card">
+            <div class="card-header">Inventory Activity (Last {{ transactions|length }})</div>
+             {% if transactions %}
+                <ul class="list-group list-group-flush" style="max-height: 300px; overflow-y: auto;">
+                    {% for tx in transactions %}
+                    <li class="list-group-item">
+                        <small class="text-muted">{{ tx.transaction_date.strftime('%Y-%m-%d %H:%M') }}</small> -
+                        {{ tx.description }}
+                        ({{ tx.part.name if tx.part else 'Unknown Part' }})
+                        <span class="badge {{ 'bg-success' if tx.quantity > 0 else 'bg-warning' }} float-end">
+                            {{ '+' if tx.quantity > 0 }}{{ tx.quantity }}
+                        </span>
+                    </li>
+                    {% endfor %}
+                </ul>
+             {% else %}
+             <div class="card-body">
+                <p class="text-muted">No recent inventory transactions.</p>
+              </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

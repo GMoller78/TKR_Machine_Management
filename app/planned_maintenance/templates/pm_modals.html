@@ -1,0 +1,73 @@
+{# tkr_system/app/templates/pm_modals.html #}
+<!-- Modals for Usage and Checklist Logging -->
+{% for eq in equipment %} {# Assume 'equipment' is passed to dashboard #}
+    <!-- Usage Modal -->
+    <div class="modal fade" id="usageModal-{{ eq.id }}" tabindex="-1" aria-labelledby="usageModalLabel-{{ eq.id }}" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="usageModalLabel-{{ eq.id }}">Log Usage for {{ eq.code }} - {{ eq.name }}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form method="POST" action="{{ url_for('planned_maintenance.add_usage') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                        <input type="hidden" name="equipment_id" value="{{ eq.id }}">
+                        <div class="mb-3">
+                            <label for="usage_value-{{ eq.id }}" class="form-label">Usage Value (Hours/KM) <span class="text-danger">*</span></label>
+                            <input type="number" step="any" class="form-control" id="usage_value-{{ eq.id }}" name="usage_value" required placeholder="e.g., 1250.5">
+                        </div>
+                        <div class="mb-3">
+                            <label for="log_date-{{ eq.id }}" class="form-label">Log Date (Optional)</label>
+                            <input type="datetime-local" class="form-control" id="log_date-{{ eq.id }}" name="log_date" placeholder="Leave blank for current time (UTC)">
+                             <div class="form-text">If setting date, ensure it's accurate. Defaults to current UTC time.</div>
+                        </div>
+                        <button type="submit" class="btn btn-info">Log Usage</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Checklist Modal (only if checklist is required) -->
+    {% if eq.checklist_required %}
+        <div class="modal fade" id="checklistModal-{{ eq.id }}" tabindex="-1" aria-labelledby="checklistModalLabel-{{ eq.id }}" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="checklistModalLabel-{{ eq.id }}">Log Checklist for {{ eq.code }} - {{ eq.name }}</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form method="POST" action="{{ url_for('planned_maintenance.new_checklist') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                            <input type="hidden" name="equipment_id" value="{{ eq.id }}">
+                            <div class="mb-3">
+                                <label class="form-label">Status <span class="text-danger">*</span></label>
+                                <div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" name="status" id="status_go-{{ eq.id }}" value="Go" required>
+                                        <label class="form-check-label text-success fw-bold" for="status_go-{{ eq.id }}">Go</label>
+                                    </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" name="status" id="status_go_but-{{ eq.id }}" value="Go But">
+                                        <label class="form-check-label text-warning fw-bold" for="status_go_but-{{ eq.id }}">Go But</label>
+                                    </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" name="status" id="status_no_go-{{ eq.id }}" value="No Go">
+                                        <label class="form-check-label text-danger fw-bold" for="status_no_go-{{ eq.id }}">No Go</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="issues-{{ eq.id }}" class="form-label">Issues Noted (Optional)</label>
+                                <textarea class="form-control" id="issues-{{ eq.id }}" name="issues" rows="2" placeholder="Describe any issues found..."></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Log Checklist</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+{% endfor %}

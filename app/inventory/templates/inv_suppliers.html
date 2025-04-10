@@ -1,0 +1,71 @@
+{% extends "inv_base.html" %}
+
+{% block title %}Manage Suppliers - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Manage Suppliers</h1>
+    {# Optional: Button to toggle form if you prefer it hidden initially
+    <button class="btn btn-success" type="button" data-bs-toggle="collapse" data-bs-target="#addSupplierForm" aria-expanded="false" aria-controls="addSupplierForm">
+        Add New Supplier
+    </button>
+    #}
+</div>
+
+<!-- Add Supplier Form -->
+{# <div class="collapse mb-4" id="addSupplierForm"> #}
+<div class="card card-body mb-4">
+    <h2>Add New Supplier</h2>
+    {# The form posts back to the same route 'inventory.manage_suppliers' #}
+    <form method="POST" action="{{ url_for('inventory.manage_suppliers') }}">
+         {# Include CSRF token if using Flask-WTF or similar #}
+         <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <label for="supplier_name" class="form-label">Supplier Name</label>
+                <input type="text" class="form-control" id="supplier_name" name="name" required>
+            </div>
+             <div class="col-md-6 mb-3">
+                <label for="supplier_contact" class="form-label">Contact Info (Optional)</label>
+                <input type="text" class="form-control" id="supplier_contact" name="contact_info" placeholder="e.g., Phone, Email, Address">
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Add Supplier</button>
+    </form>
+</div>
+{# </div> #}
+
+
+<!-- Suppliers List -->
+<h2>Suppliers List</h2>
+{% if suppliers %}
+<div class="table-responsive">
+    <table class="table table-striped table-hover">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Contact Info</th>
+                <th>Actions</th> {# Placeholder for future actions #}
+            </tr>
+        </thead>
+        <tbody>
+            {% for supplier in suppliers %}
+            <tr>
+                <td>{{ supplier.name }}</td>
+                <td>{{ supplier.contact_info or 'N/A' }}</td>
+                <td>
+                    <a href="#" class="btn btn-sm btn-info disabled">Edit</a> {# Placeholder #}
+                    <a href="#" class="btn btn-sm btn-danger disabled">Delete</a> {# Placeholder #}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+    <p class="text-muted">No suppliers have been added yet.</p>
+{% endif %}
+
+{% endblock %}

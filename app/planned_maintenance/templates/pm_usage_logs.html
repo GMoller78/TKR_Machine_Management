@@ -1,0 +1,31 @@
+{% extends "pm_base.html" %}
+{% block title %}Usage Logs{% endblock %}
+{% block content %}
+<h1>Equipment Usage Logs</h1>
+<form method="GET" class="mb-4">
+    <div class="row">
+        <div class="col-md-4">
+            <select class="form-select" name="type">
+                <option value="">All Types</option>
+                {% for type in types %}
+                    <option value="{{ type }}" {% if type == type_filter %}selected{% endif %}>{{ type }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-4">
+            <input type="text" class="form-control" name="name" placeholder="Filter by Name" value="{{ name_filter or '' }}">
+        </div>
+        <div class="col-md-4">
+            <button type="submit" class="btn btn-primary">Filter</button>
+        </div>
+    </div>
+</form>
+<table class="table">
+    <thead><tr><th>Date</th><th>Equipment</th><th>Type</th><th>Usage (Hours/KM)</th></tr></thead>
+    <tbody>
+        {% for log in logs %}
+            <tr><td>{{ log.log_date.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ log.equipment_ref.name }}</td><td>{{ log.equipment_ref.type }}</td><td>{{ log.usage_value }}</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,35 @@
+{# This is a partial template, e.g., for inclusion in dashboard or parts page #}
+{# Assumes 'parts' list (all parts) is passed to the template rendering this partial #}
+<form method="POST" action="{{ url_for('inventory.receive_stock') }}">
+     {# Include CSRF token if using Flask-WTF or similar #}
+     <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+
+    <div class="mb-3">
+        <label for="receive_part_id" class="form-label">Select Part</label>
+        <select class="form-select" id="receive_part_id" name="part_id" required>
+            <option value="" selected disabled>Choose part...</option>
+            {% for part in parts_for_dropdown %} {# Use the passed variable #}
+                <option value="{{ part.id }}">{{ part.name }} ({{ part.store }}) - Stock: {{ part.current_stock }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="mb-3">
+        <label for="receive_quantity" class="form-label">Quantity Received</label>
+        <input type="number" class="form-control" id="receive_quantity" name="quantity" min="1" required placeholder="Enter quantity">
+    </div>
+    <button type="submit" class="btn btn-primary w-100">Receive Stock & Share</button>
+</form>
+
+{# Note: The query `Part.query...` inside the template is generally discouraged.
+   It's better practice to pass the `all_parts` list from the route that renders this template.
+   Adjust the route accordingly (e.g., pass `all_parts=Part.query...all()` to `render_template`). #}
+
+{# Example modification in inv_dashboard route:
+   all_parts_for_form = Part.query.order_by(Part.store, Part.name).all() # Query once
+   return render_template(
+       'inv_dashboard.html',
+       ..., # other variables
+       all_parts_for_form=all_parts_for_form # Pass to template
+   )
+   Then in the template use: {% for part in all_parts_for_form %}
+#}

@@ -1,0 +1,53 @@
+{# This is a partial template, meant to be included in other pages like the dashboard #}
+<form method="POST" action="{{ url_for('planned_maintenance.new_job_card') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+
+    <div class="row">
+        <div class="col-md-6 mb-3">
+            <label for="jc_equipment_id" class="form-label">Equipment</label>
+            <select class="form-select" id="jc_equipment_id" name="equipment_id" required>
+                <option value="" selected disabled>Select Equipment...</option>
+                {% for item in equipment %}
+                    <option value="{{ item.id }}">{{ item.name }} ({{ item.type }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-6 mb-3">
+            <label for="jc_technician" class="form-label">Assigned Technician</label>
+            <input type="text" class="form-control" id="jc_technician" name="technician" placeholder="e.g., Technician A">
+        </div>
+    </div>
+
+    <div class="mb-3">
+        <label for="jc_description" class="form-label">Task Description</label>
+        <textarea class="form-control" id="jc_description" name="description" rows="3" required placeholder="Describe the maintenance task or breakdown..."></textarea>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6 mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="jc_oem_required" name="oem_required">
+            <label class="form-check-label" for="jc_oem_required">OEM Presence Required?</label>
+        </div>
+        <div class="col-md-6 mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="jc_kit_required" name="kit_required">
+            <label class="form-check-label" for="jc_kit_required">Specific Supplier Kit Required?</label>
+        </div>
+    </div>
+
+    <div class="mb-3">
+        <label for="jc_due_date" class="form-label">Due Date (Optional)</label>
+        <input type="datetime-local" class="form-control" id="jc_due_date" name="due_date" placeholder="Select due date and time">
+    </div>
+
+    <div class="row align-items-center">
+        <div class="col-auto">
+            <button type="submit" class="btn btn-success">Create Job Card & Share</button>
+        </div>
+        <div class="col-auto">
+            <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="jc_send_whatsapp" name="send_whatsapp">
+                <label class="form-check-label" for="jc_send_whatsapp">Send WhatsApp?</label>
+            </div>
+        </div>
+    </div>
+</form>
