@@ -1,10 +1,11 @@
 # tkr_system/app/__init__.py
-import os  # <--- Add this import statement
+import os
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from config import Config  # Import the Config class from config.py
+from config import Config
 import calendar
+from werkzeug.middleware.proxy_fix import ProxyFix # <--- Import ProxyFix
 
 # Initialize extensions
 db = SQLAlchemy()
@@ -14,15 +15,20 @@ from app.api.routes import api_bp # Import the new API blueprint
 
 def create_app(config_class=Config):
     """Flask application factory."""
-    app = Flask(__name__, instance_relative_config=True) # Enable instance folder configuration
+    app = Flask(__name__, instance_relative_config=True)
 
     # Load configuration from Config object
-    app.config.from_object(config_class) 
-    
-    # Ensure the instance folder exists 
-    # This check is good practice within the factory too
+    app.config.from_object(config_class)
+
+    # --- Apply ProxyFix AFTER app creation and config ---
+    # This helps Flask understand headers like X-Forwarded-For, X-Forwarded-Proto, X-Forwarded-Host, X-Forwarded-Prefix
+    # when running behind a reverse proxy like Nginx.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+    # --- End ProxyFix ---
+
+    # Ensure the instance folder exists
     try:
-        os.makedirs(app.instance_path) # Now 'os' is defined
+        os.makedirs(app.instance_path)
     except OSError:
         pass # Already exists or other error creating it
 
@@ -31,8 +37,7 @@ def create_app(config_class=Config):
     migrate.init_app(app, db)
 
    # --- Define and Register Jinja Filter ---
-    # Option A: Define directly here
-    @app.template_filter('month_name') # The name used in the template
+    @app.template_filter('month_name')
     def format_month_name_filter(month_number):
         """Converts a month number (1-12) to its full name."""
         try:
@@ -43,14 +48,14 @@ def create_app(config_class=Config):
                 return month_number
         except (ValueError, TypeError):
             return month_number
+
     # Import and register blueprints
-    # Import within the factory function to avoid circular imports
     from app.planned_maintenance import bp as pm_bp
     from app.inventory import bp as inv_bp
 
     app.register_blueprint(pm_bp, url_prefix='/planned-maintenance')
     app.register_blueprint(inv_bp, url_prefix='/inventory')
-    app.register_blueprint(api_bp)
+    app.register_blueprint(api_bp) # Assuming api_bp doesn't need a prefix, adjust if it does
 
     # Optional: Add a simple root route for testing if the app runs
     @app.route('/hello')
@@ -59,9 +64,10 @@ def create_app(config_class=Config):
 
     return app
 
-# Import models here after db is initialized, 
+# (Keep the rest of the file as is, including the bottom import)
+from app import models
 
-
+# Helper function (can remain outside create_app)
 def format_month_name(month_number):
     """Converts a month number (1-12) to its full name."""
     try:
@@ -69,11 +75,6 @@ def format_month_name(month_number):
         if 1 <= month_num <= 12:
             return calendar.month_name[month_num]
         else:
-            # Return the original value if it's not a valid month number
             return month_number
     except (ValueError, TypeError):
-        # Handle cases where month_number isn't an integer
         return month_number
-# helps Flask-Migrate detect models easily.
-# Putting it here avoids circular imports with blueprints potentially needing models.
-from app import models 
