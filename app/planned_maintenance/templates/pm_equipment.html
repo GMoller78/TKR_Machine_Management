@@ -1,3 +1,4 @@
+<!-- START OF FILE pm_equipment.html -->
 {% extends "pm_base.html" %}
 
 {% block title %}Manage Equipment - {{ super() }}{% endblock %}
@@ -6,81 +7,141 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1>Manage Equipment</h1>
     <button class="btn btn-success" type="button" data-bs-toggle="collapse" data-bs-target="#addEquipmentForm" aria-expanded="false" aria-controls="addEquipmentForm">
-        Add New Equipment
+        <i class="bi bi-plus-circle me-1"></i> Add New Equipment
     </button>
 </div>
 
 <!-- Add Equipment Form (Collapsible) -->
-<div class="collapse mb-4" id="addEquipmentForm">
-    <div class="card card-body">
+{# Check if current_data exists and has content to decide if form should start expanded (e.g., after validation error) #}
+{% set add_form_expanded = current_data and (current_data.code or current_data.name or current_data.type) %}
+<div class="collapse mb-4 {% if add_form_expanded %}show{% endif %}" id="addEquipmentForm">
+    <div class="card card-body shadow-sm">
         <h2>Add New Equipment</h2>
+        {# Point form action to the new dedicated add route #}
         <form method="POST" action="{{ url_for('planned_maintenance.add_equipment') }}">
-            {# Include CSRF token if using Flask-WTF: {{ form.hidden_tag() }}
-               Or generate manually if needed. #}
              <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
-             <div class="mb-3">
-                <label for="code" class="form-label">Machine Code</label>
-                <input type="text" class="form-control" id="code" name="code" required value="{{ current_code or '' }}">
-            </div>
-            <div class="mb-3">
-                <label for="name" class="form-label">Machine Name</label>
-                <input type="text" class="form-control" id="name" name="name" required value="{{ current_name or '' }}">
-            </div>
-
-            <div class="mb-3">
-                <label for="type" class="form-label">Machine Type</label>
-                <select class="form-select" id="type" name="type" required>
-                    <option value="" {% if not current_type %}selected{% endif %} disabled>Select Type...</option>
-                    <option value="Drilling" {% if current_type == 'Drilling' %}selected{% endif %}>Drilling</option>
-                    <option value="ROMPAD" {% if current_type == 'ROMPAD' %}selected{% endif %}>ROMPAD</option>
-                    <option value="Fleet" {% if current_type == 'Fleet' %}selected{% endif %}>Fleet</option>
-                    {# Add other types as needed #}
-                </select>
+             <div class="row">
+                 <div class="col-md-6 mb-3">
+                    <label for="add_code" class="form-label">Machine Code <span class="text-danger">*</span></label>
+                    {# Use current_data passed from route on error #}
+                    <input type="text" class="form-control" id="add_code" name="code" required value="{{ current_data.code or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label for="add_name" class="form-label">Machine Name <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="add_name" name="name" required value="{{ current_data.name or '' }}">
+                </div>
+             </div>
+             <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="add_type" class="form-label">Machine Type <span class="text-danger">*</span></label>
+                    <select class="form-select" id="add_type" name="type" required>
+                        <option value="" {% if not current_data.type %}selected{% endif %} disabled>Select Type...</option>
+                        <option value="Drilling" {% if current_data.type == 'Drilling' %}selected{% endif %}>Drilling</option>
+                        <option value="ROMPAD" {% if current_data.type == 'ROMPAD' %}selected{% endif %}>ROMPAD</option>
+                        <option value="Fleet" {% if current_data.type == 'Fleet' %}selected{% endif %}>Fleet</option>
+                        {# Add other types as needed #}
+                    </select>
+                </div>
+                 <div class="col-md-6 mb-3">
+                    <label for="add_status" class="form-label">Status <span class="text-danger">*</span></label>
+                    <select class="form-select" id="add_status" name="status" required>
+                        {% for stat in equipment_statuses %}
+                        {# Select 'Operational' by default or the repopulated value #}
+                        <option value="{{ stat }}" {% if (current_data.status == stat) or (not current_data.status and stat == 'Operational') %}selected{% endif %}>{{ stat }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
             </div>
 
             <div class="mb-3 form-check">
-                <input type="checkbox" class="form-check-input" id="checklist_required" name="checklist_required" {% if current_checklist %}checked{% endif %}>
-                <label class="form-check-label" for="checklist_required">Checklist Required?</label>
+                <input type="checkbox" class="form-check-input" id="add_checklist_required" name="checklist_required" {% if current_data.checklist_required %}checked{% endif %}>
+                <label class="form-check-label" for="add_checklist_required">Checklist Required?</label>
             </div>
 
-            <button type="submit" class="btn btn-primary">Add Equipment</button>
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i> Add Equipment</button>
         </form>
     </div>
 </div>
 
 
-<!-- Equipment List -->
+<!-- Equipment List Grouped by Type -->
 <h2>Equipment List</h2>
-{% if equipment %}
-<div class="table-responsive">
-    <table class="table table-striped table-hover">
-        <thead>
-            <tr>
-                <th>Code</th>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Checklist Required</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for item in equipment %}
-            <tr>
-                <td>{{ item.code }}</td>
-                <td>{{ item.name }}</td>
-                <td>{{ item.type }}</td>
-                <td>{% if item.checklist_required %}Yes{% else %}No{% endif %}</td>
-                <td>
-                    <a href="#" class="btn btn-sm btn-info disabled">View</a> {# Placeholder for future view/edit link #}
-                    <a href="#" class="btn btn-sm btn-danger disabled">Remove</a> {# Placeholder for future remove action #}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
+
+{% if grouped_equipment %}
+<div class="accordion" id="equipmentAccordion">
+    {% for type, group_data in grouped_equipment.items() %}
+        {# Generate a safe ID for the collapse element #}
+        {% set collapse_id = 'collapse-' + type|replace(' ', '-')|replace('/', '-')|lower %}
+        <div class="accordion-item mb-2">
+            <h2 class="accordion-header" id="heading-{{ collapse_id }}">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#{{ collapse_id }}" aria-expanded="false" aria-controls="{{ collapse_id }}">
+                    <strong class="me-3">{{ type }}</strong>
+                    <span class="badge bg-secondary me-2">Total: {{ group_data.total }}</span>
+                    <span class="badge {% if group_data.operational == group_data.total %}bg-success{% elif group_data.operational > 0 %}bg-warning{% else %}bg-danger{% endif %}">
+                        Operational: {{ group_data.operational }}
+                    </span>
+                </button>
+            </h2>
+            <div id="{{ collapse_id }}" class="accordion-collapse collapse" aria-labelledby="heading-{{ collapse_id }}" data-bs-parent="#equipmentAccordion">
+                <div class="accordion-body p-0"> {# Remove padding from body to make table flush #}
+                    {% if group_data.items %}
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover table-sm mb-0"> {# mb-0 removes bottom margin #}
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Code</th>
+                                    <th>Name</th>
+                                    <th>Status</th> {# Added Status column #}
+                                    <th>Checklist Req.</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in group_data['items'] %}
+                                <tr>
+                                    <td>{{ item.code }}</td>
+                                    <td>{{ item.name }}</td>
+                                    <td>
+                                        {# Add visual cue for status #}
+                                        {% set status_color = 'secondary' %}
+                                        {% if item.status == 'Operational' %}
+                                            {% set status_color = 'success' %}
+                                        {% elif item.status in ['Broken Down', 'At OEM', 'Under Repair', 'Awaiting Spares'] %}
+                                            {% set status_color = 'danger' %}
+                                        {% elif item.status == 'Sold' %}
+                                            {% set status_color = 'dark' %}
+                                        {% endif %}
+                                        <span class="badge bg-{{ status_color }}">{{ item.status }}</span>
+                                    </td>
+                                    <td>{% if item.checklist_required %}<i class="bi bi-check-circle-fill text-success"></i> Yes{% else %}<i class="bi bi-x-circle text-muted"></i> No{% endif %}</td>
+                                    <td>
+                                        {# Edit button linking to the new edit route #}
+                                        <a href="{{ url_for('planned_maintenance.edit_equipment', id=item.id) }}" class="btn btn-sm btn-outline-primary" title="Edit">
+                                            <i class="bi bi-pencil-square"></i> Edit
+                                        </a>
+                                        {# Link to tasks page, filtered by this specific equipment ID #}
+                                        <a href="{{ url_for('planned_maintenance.tasks_list', equipment_id=item.id) }}" class="btn btn-sm btn-outline-info" title="View Tasks">
+                                            <i class="bi bi-list-task"></i> Tasks
+                                        </a>
+                                        {# Remove/Disable the original Remove button #}
+                                        {# <a href="#" class="btn btn-sm btn-danger disabled">Remove</a> #}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                        <p class="text-muted p-3">No equipment of this type.</p> {# Add padding if table is empty #}
+                    {% endif %}
+                </div> {# End accordion-body #}
+            </div> {# End collapse #}
+        </div> {# End accordion-item #}
+    {% endfor %}
+</div> {# End accordion #}
 {% else %}
-    <p class="text-muted">No equipment has been added yet.</p>
+    <p class="alert alert-info">No equipment has been added yet. Use the 'Add New Equipment' button to start.</p>
 {% endif %}
 
 {% endblock %}
+<!-- END OF FILE pm_equipment.html -->

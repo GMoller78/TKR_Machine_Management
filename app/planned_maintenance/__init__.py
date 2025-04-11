@@ -1,5 +1,19 @@
 # tkr_system/app/planned_maintenance/__init__.py
 from flask import Blueprint
+import calendar
+
+def format_month_name(month_number):
+    """Converts a month number (1-12) to its full name."""
+    try:
+        month_num = int(month_number)
+        if 1 <= month_num <= 12:
+            return calendar.month_name[month_num]
+        else:
+            # Return the original value if it's not a valid month number
+            return month_number
+    except (ValueError, TypeError):
+        # Handle cases where month_number isn't an integer
+        return month_number
 
 # Create a Blueprint instance for Planned Maintenance
 # 'planned_maintenance' = blueprint name

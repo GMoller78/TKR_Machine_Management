@@ -1,15 +1,36 @@
-# tkr_system/app/planned_maintenance/routes.py
-import logging # Import logging module
-from flask import render_template, request, redirect, url_for, flash
-from urllib.parse import urlencode # For encoding WhatsApp messages
-from datetime import datetime, timedelta, timezone, UTC
-from dateutil.parser import parse as parse_datetime  # Added import for datetime parsing
-from app.planned_maintenance import bp  # Import the blueprint instance
-from app import db                      # Import the database instance
-from app.models import Equipment, JobCard, Checklist, StockTransaction, JobCardPart, Part, MaintenanceTask, UsageLog  # Added Part to imports
+import logging
+# Corrected Flask imports
+from flask import render_template, request, redirect, url_for, flash, make_response
+from urllib.parse import urlencode
+# Corrected datetime imports
+from datetime import datetime, timedelta, timezone, date, UTC
+from dateutil.parser import parse as parse_datetime
+from dateutil.relativedelta import relativedelta
+from calendar import monthrange
+from io import BytesIO
+from app.planned_maintenance import bp
+from app import db
+# Corrected model imports (added MaintenancePlanEntry)
+from app.models import (
+    Equipment, JobCard, Checklist, StockTransaction,
+    JobCardPart, Part, MaintenanceTask, UsageLog,
+    MaintenancePlanEntry # <-- Added import
+)
 from itertools import zip_longest
-from sqlalchemy import desc, func
-import traceback # Optional: for better error logging
+# Corrected SQLAlchemy imports (added extract)
+from sqlalchemy import desc, func, extract
+import traceback
+from collections import defaultdict
+
+# --- PDF Generation (Ensure this is near the top, after imports) ---
+try:
+    from weasyprint import HTML # <-- Define HTML here
+    WEASYPRINT_AVAILABLE = True
+except ImportError:
+    WEASYPRINT_AVAILABLE = False
+    HTML = None # Define HTML as None if import fails
+    logging.warning("WeasyPrint not found. PDF generation will be disabled.")
+# --- End PDF Generation ---
 
 # --- Configure Logging (add this near the top) ---
 # Basic configuration - logs to console. Adjust level and format as needed.
@@ -20,15 +41,486 @@ logging.basicConfig(level=logging.DEBUG,
 
 # --- Planned Maintenance Routes ---
 DUE_SOON_ESTIMATED_DAYS_THRESHOLD = 7
+EQUIPMENT_STATUSES = ['Operational', 'At OEM', 'Sold', 'Broken Down', 'Under Repair', 'Awaiting Spares']
+
+def predict_task_due_dates_in_range(task, start_date, end_date):
+    """
+    Predicts specific dates a task might be due within a given date range.
+
+    Args:
+        task (MaintenanceTask): The task object.
+        start_date (date): The start date of the planning period (inclusive).
+        end_date (date): The end date of the planning period (inclusive).
+
+    Returns:
+        list: A list of date objects when the task is predicted to be due
+              within the range. Returns an empty list if prediction isn't
+              possible or no due dates fall within the range.
+    """
+    due_dates = []
+    current_time = datetime.utcnow() # Use consistent naive UTC
+
+    # --- Ensure dates are naive for comparison ---
+    if isinstance(start_date, datetime): start_date = start_date.date()
+    if isinstance(end_date, datetime): end_date = end_date.date()
+
+    # --- Timezone handling for last_performed ---
+    last_performed_dt = task.last_performed
+    if last_performed_dt and last_performed_dt.tzinfo is not None:
+        last_performed_dt = last_performed_dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+    # --- DAYS BASED TASKS ---
+    if task.interval_type == 'days':
+        if not last_performed_dt:
+            # Cannot predict accurately if never performed based on days
+            logging.debug(f"Task {task.id} ('days') never performed, cannot predict for plan.")
+            return []
+
+        next_due = last_performed_dt # Start from last performed
+        while True:
+            # Calculate the next potential due date
+            next_due = next_due + timedelta(days=task.interval_value)
+            next_due_date_only = next_due.date() # Compare dates only
+
+            # Stop if we've gone past the planning period
+            if next_due_date_only > end_date:
+                break
+
+            # Add if it falls within the planning period
+            if next_due_date_only >= start_date:
+                due_dates.append(next_due_date_only)
+
+        logging.debug(f"Task {task.id} ('days'): Predicted due dates in range: {due_dates}")
+        return due_dates
+
+    # --- HOURS/KM BASED TASKS (Estimation) ---
+    elif task.interval_type in ['hours', 'km']:
+        # We use the *estimated* days until due from calculate_task_due_status
+        # This is an approximation for planning purposes.
+        try:
+            status, due_info, calc_due_date, lp_info, nd_info, est_days_info = \
+                calculate_task_due_status(task, current_time) # Use naive UTC
+
+            # We only plot if the task is NOT overdue and has an estimated days calculation
+            if status != "Overdue" and est_days_info and "~" in est_days_info and "days" in est_days_info:
+                 # Extract the numeric part of the estimate
+                 try:
+                      # Find number like "~5.2 days" or "~10 days"
+                      numeric_part = ''.join(filter(lambda x: x.isdigit() or x == '.', est_days_info.split('~')[-1].split(' ')[0]))
+                      estimated_days_until = float(numeric_part)
+                      
+                      # Calculate the estimated due date based on *today*
+                      estimated_due_date = (current_time + timedelta(days=estimated_days_until)).date()
+
+                      # If this single estimated date falls within the range, add it
+                      if start_date <= estimated_due_date <= end_date:
+                           logging.debug(f"Task {task.id} ('{task.interval_type}'): Estimated due date {estimated_due_date} falls in range.")
+                           # NOTE: We only add ONE estimated date for usage-based tasks in this simplified model
+                           return [estimated_due_date]
+                      else:
+                           logging.debug(f"Task {task.id} ('{task.interval_type}'): Estimated due date {estimated_due_date} OUTSIDE range.")
+                           return []
+                 except (ValueError, IndexError) as parse_err:
+                      logging.warning(f"Task {task.id} ('{task.interval_type}'): Could not parse estimated days from '{est_days_info}': {parse_err}")
+                      return []
+            else:
+                # Cannot reliably estimate or it's already overdue (handled elsewhere)
+                 logging.debug(f"Task {task.id} ('{task.interval_type}'): Cannot estimate days or is overdue/error state ('{status}', '{est_days_info}'). Skipping for plan.")
+                 return []
+
+        except Exception as calc_err:
+            logging.error(f"Error calculating status for Task {task.id} during planning: {calc_err}", exc_info=True)
+            return []
+
+    else: # Unknown interval type
+        logging.warning(f"Task {task.id}: Unknown interval type '{task.interval_type}' for planning.")
+        return []
+
+# ==============================================================================
+# === Maintenance Plan Generation Route ===
+# ==============================================================================
+@bp.route('/maintenance_plan/generate', methods=['POST'])
+def generate_maintenance_plan():
+    logging.debug("--- Received request to generate maintenance plan ---")
+    try:
+        year_str = request.form.get('year')
+        month_str = request.form.get('month')
+
+        if not year_str or not month_str:
+            flash("Year and Month are required to generate the plan.", "warning")
+            return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
+
+        try:
+            year = int(year_str)
+            month = int(month_str)
+            if not (1 <= month <= 12):
+                raise ValueError("Month must be between 1 and 12.")
+            # Basic check for sensible year range
+            current_year = datetime.utcnow().year
+            if not (current_year - 5 <= year <= current_year + 5):
+                 raise ValueError("Year seems unreasonable.")
+
+        except ValueError as ve:
+            flash(f"Invalid year or month selected: {ve}", "warning")
+            return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
+
+        # Calculate Date Range for the selected month
+        try:
+            plan_start_date = date(year, month, 1)
+            days_in_month = monthrange(year, month)[1]
+            plan_end_date = date(year, month, days_in_month)
+            month_name_full = plan_start_date.strftime("%B %Y")
+        except ValueError:
+             flash(f"Invalid date combination for {month}/{year}.", "danger")
+             return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
+
+        logging.info(f"Generating plan for {month_name_full} ({plan_start_date} to {plan_end_date})")
+
+        # 1. Clear existing entries for this month/year
+        logging.debug(f"Deleting existing plan entries for {year}-{month}...")
+        deleted_count = MaintenancePlanEntry.query.filter_by(plan_year=year, plan_month=month).delete()
+        db.session.commit() # Commit deletion before adding new ones
+        logging.debug(f"Deleted {deleted_count} existing entries.")
+
+        # 2. Fetch Tasks
+        all_tasks = MaintenanceTask.query.all()
+        generation_time = datetime.utcnow()
+        new_entries_count = 0
+
+        # 3. Predict and Save New Entries
+        for task in all_tasks:
+            predicted_dates = predict_task_due_dates_in_range(task, plan_start_date, plan_end_date)
+
+            if predicted_dates:
+                 is_estimate_flag = task.interval_type in ['hours', 'km'] # Mark estimates
+                 for due_date in predicted_dates:
+                     entry = MaintenancePlanEntry(
+                         equipment_id=task.equipment_id,
+                         task_description=task.description, # Store description
+                         planned_date=due_date,             # Store the specific date
+                         interval_type=task.interval_type,  # Store type at generation
+                         is_estimate=is_estimate_flag,
+                         generated_at=generation_time,
+                         plan_year=year,
+                         plan_month=month,
+                         task_id=task.id # Link back to original task
+                     )
+                     db.session.add(entry)
+                     new_entries_count += 1
+
+        # 4. Commit new entries
+        db.session.commit()
+        logging.info(f"Successfully generated plan for {month_name_full}. Added {new_entries_count} entries.")
+        flash(f"Maintenance plan for {month_name_full} generated/updated successfully ({new_entries_count} entries).", "success")
+
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"--- Error generating maintenance plan: {e} ---", exc_info=True)
+        flash(f"An error occurred while generating the plan: {e}", "danger")
+
+    return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
+
+# ==============================================================================
+# === Maintenance Plan PDF Route (Modified) ===
+# ==============================================================================
+@bp.route('/maintenance_plan/pdf') # Keep GET method
+def maintenance_plan_pdf():
+    if not WEASYPRINT_AVAILABLE:
+        flash("PDF generation library (WeasyPrint) is not installed or configured correctly.", "danger")
+        # Decide: redirect to dashboard or maybe a dedicated plan view page?
+        return redirect(url_for('planned_maintenance.dashboard'))
+
+    logging.debug("--- Request for Maintenance Plan PDF ---")
+    try:
+        # 1. Get Target Month/Year from Query Parameters
+        try:
+            # Default to current month if not specified
+            default_date = date.today()
+            year = request.args.get('year', default=default_date.year, type=int)
+            month = request.args.get('month', default=default_date.month, type=int)
+
+            if not (1 <= month <= 12): raise ValueError("Month out of range")
+            current_year = datetime.utcnow().year
+            if not (current_year - 5 <= year <= current_year + 5): raise ValueError("Year out of range")
+
+        except (ValueError, TypeError):
+            flash("Invalid or missing year/month for PDF plan. Defaulting to current month.", "warning")
+            default_date = date.today()
+            year = default_date.year
+            month = default_date.month
+
+        # Calculate Date Range and Month Name
+        try:
+            plan_start_date = date(year, month, 1)
+            days_in_month = monthrange(year, month)[1]
+            plan_end_date = date(year, month, days_in_month)
+            month_name = plan_start_date.strftime("%B %Y")
+        except ValueError:
+             flash(f"Cannot generate PDF for invalid date {month}/{year}.", "danger")
+             return redirect(url_for('planned_maintenance.dashboard'))
+
+        logging.info(f"Generating PDF for plan: {month_name}")
+
+        # 2. Fetch Equipment List (for rows)
+        # Eager load equipment to avoid N+1 queries in the template if accessing eq details
+        equipment_list = Equipment.query.order_by(Equipment.code).all()
+
+
+        # 3. Fetch Stored Plan Entries for the selected month/year
+        logging.debug(f"Querying stored plan entries for {year}-{month}...")
+        plan_entries = MaintenancePlanEntry.query.filter(
+            MaintenancePlanEntry.plan_year == year,
+            MaintenancePlanEntry.plan_month == month
+        ).options(
+            db.joinedload(MaintenancePlanEntry.equipment) # Eager load equipment data if needed
+        ).order_by(
+            MaintenancePlanEntry.equipment_id,
+            MaintenancePlanEntry.planned_date
+        ).all()
+        logging.debug(f"Found {len(plan_entries)} stored entries.")
+
+        # 4. Structure Data for the Template
+        plan_data = {} # Structure: {eq_id: {date_obj: [task_label1, task_label2]}}
+        generation_info = "Plan not generated for this period." # Default message
+        if plan_entries:
+            # Find the latest generation time for this batch
+            latest_generation_time = max(entry.generated_at for entry in plan_entries if entry.generated_at)
+            generation_info = f"Plan generated on: {latest_generation_time.strftime('%Y-%m-%d %H:%M:%S UTC') if latest_generation_time else 'N/A'}"
+
+            for entry in plan_entries:
+                eq_id = entry.equipment_id
+                due_date = entry.planned_date # Already a date object
+
+                if eq_id not in plan_data:
+                    plan_data[eq_id] = {}
+                if due_date not in plan_data[eq_id]:
+                    plan_data[eq_id][due_date] = []
+
+                task_label = entry.task_description
+                if entry.is_estimate:
+                    task_label += " (Est.)"
+                plan_data[eq_id][due_date].append(task_label)
+
+        # Generate list of dates for the header
+        dates_in_month = [plan_start_date + timedelta(days=d) for d in range(days_in_month)]
+
+        # 5. Render HTML Template
+        logging.debug("Rendering maintenance_plan_template.html for PDF")
+        html_string = render_template(
+            'maintenance_plan_template.html', # Use the same template
+            title=f"Maintenance Plan - {month_name}",
+            month_name=month_name,
+            equipment_list=equipment_list,
+            dates_in_month=dates_in_month,
+            plan_data=plan_data, # Pass the structured data from the DB
+            date_today=date.today(),
+            generation_info=generation_info # Pass generation info
+        )
+
+        # 6. Generate PDF using WeasyPrint
+        logging.debug("Generating PDF with WeasyPrint...")
+        pdf_file = HTML(string=html_string).write_pdf()
+        logging.debug("PDF generation complete.")
+
+        # 7. Create Response
+        response = make_response(pdf_file)
+        response.headers['Content-Type'] = 'application/pdf'
+        response.headers['Content-Disposition'] = f'attachment; filename="maintenance_plan_{year}_{month:02d}.pdf"'
+        return response
+
+    except Exception as e:
+        logging.error(f"--- Error generating maintenance plan PDF: {e} ---", exc_info=True)
+        flash(f"An error occurred while generating the PDF plan: {e}", "danger")
+        return redirect(url_for('planned_maintenance.dashboard'))
+
+# ==============================================================================
+# === Maintenance Plan Web View Route ===
+# ==============================================================================
+@bp.route('/maintenance_plan', methods=['GET']) # Use GET for viewing
+def maintenance_plan_view():
+    logging.debug("--- Request for Maintenance Plan View ---")
+    try:
+        # 1. Get Target Month/Year from Query Parameters (remains the same)
+        try:
+            default_date = date.today()
+            year = request.args.get('year', default=default_date.year, type=int)
+            month = request.args.get('month', default=default_date.month, type=int)
+
+            if not (1 <= month <= 12): raise ValueError("Month out of range")
+            current_year_check = date.today().year # Use current system year for sanity check
+            if not (current_year_check - 10 <= year <= current_year_check + 10): raise ValueError("Year out of reasonable range")
+
+        except (ValueError, TypeError):
+            flash("Invalid or missing year/month. Defaulting to current month.", "warning")
+            default_date = date.today()
+            year = default_date.year
+            month = default_date.month
+            # Redirect to the default view to avoid confusion with invalid params
+            return redirect(url_for('planned_maintenance.maintenance_plan_view', year=year, month=month))
+
+        # Calculate Date Range and Month Name (remains the same)
+        try:
+            plan_start_date = date(year, month, 1)
+            days_in_month = monthrange(year, month)[1]
+            plan_end_date = date(year, month, days_in_month)
+            month_name_str = plan_start_date.strftime("%B %Y") # Renamed variable for clarity
+        except ValueError:
+             flash(f"Cannot display plan for invalid date {month}/{year}.", "danger")
+             # Redirect to a default valid plan view
+             return redirect(url_for('planned_maintenance.maintenance_plan_view'))
+
+        logging.info(f"Displaying plan view for: {month_name_str}")
+
+        # 2. Fetch Equipment List (remains the same)
+        equipment_list = Equipment.query.order_by(Equipment.code).all()
+        if not equipment_list:
+             logging.warning("No equipment found in the database.")
+             # Render template but indicate no equipment exists
+             return render_template('maintenance_plan_template.html',
+                               title=f"Maintenance Plan - {month_name_str}",
+                               equipment_list=[],
+                               all_calendar_dates=[], # Pass empty list
+                               plan_data={},
+                               date_today=date.today(),
+                               current_year=year,
+                               current_month=month,
+                               generation_info="N/A - No Equipment",
+                               WEASYPRINT_AVAILABLE = WEASYPRINT_AVAILABLE,
+                               error="No equipment registered.") # Pass error message
+
+        # 3. Fetch Stored Plan Entries (remains the same)
+        logging.debug(f"Querying stored plan entries for {year}-{month}...")
+        plan_entries = MaintenancePlanEntry.query.filter(
+            MaintenancePlanEntry.plan_year == year,
+            MaintenancePlanEntry.plan_month == month
+        ).options(
+            # Eager load equipment if you access equipment details within the loop below
+             db.joinedload(MaintenancePlanEntry.equipment)
+        ).order_by(
+            MaintenancePlanEntry.equipment_id,
+            MaintenancePlanEntry.planned_date
+        ).all()
+        logging.debug(f"Found {len(plan_entries)} stored entries.")
+
+        # 4. Structure Plan Data for the Template (remains the same)
+        plan_data = {}
+        generation_info = "Plan not generated for this period."
+        if plan_entries:
+            latest_generation_time = max((entry.generated_at for entry in plan_entries if entry.generated_at), default=None)
+            if latest_generation_time:
+                # Ensure it's naive UTC before formatting
+                if latest_generation_time.tzinfo is not None:
+                    latest_generation_time = latest_generation_time.astimezone(timezone.utc).replace(tzinfo=None)
+                generation_info = f"Plan generated on: {latest_generation_time.strftime('%Y-%m-%d %H:%M UTC')}" # Removed seconds
+            else:
+                 generation_info = "Plan generated (time unknown)"
+
+
+            for entry in plan_entries:
+                # Ensure planned_date is a date object if stored differently
+                entry_date = entry.planned_date
+                if isinstance(entry_date, datetime):
+                     entry_date = entry_date.date()
+                elif not isinstance(entry_date, date):
+                     logging.warning(f"Skipping entry {entry.id} due to invalid date type: {type(entry_date)}")
+                     continue # Skip if date is not valid
+
+                eq_id = entry.equipment_id
+                if eq_id not in plan_data:
+                    plan_data[eq_id] = {}
+                if entry_date not in plan_data[eq_id]:
+                    plan_data[eq_id][entry_date] = []
+
+                task_label = entry.task_description or "Unnamed Task" # Handle null description
+                if entry.is_estimate:
+                    task_label += " (Est.)"
+                plan_data[eq_id][entry_date].append(task_label)
+
+        # 5. ================== GENERATE all_calendar_dates ==================
+        logging.debug(f"Generating full calendar grid dates for {month_name_str}...")
+        all_calendar_dates = []
+        # Find the weekday of the first day (0=Monday, 6=Sunday)
+        first_day_weekday = plan_start_date.weekday()
+
+        # Add padding days from the previous month
+        days_from_prev_month = first_day_weekday
+        logging.debug(f"First day ({plan_start_date}) weekday: {first_day_weekday}. Need {days_from_prev_month} padding days from previous month.")
+        for i in range(days_from_prev_month, 0, -1):
+            padding_date = plan_start_date - timedelta(days=i)
+            all_calendar_dates.append(padding_date)
+            logging.debug(f"  Adding prev month padding: {padding_date}")
+
+        # Add days from the current month
+        logging.debug(f"Adding {days_in_month} days for current month...")
+        current_month_dates = [plan_start_date + timedelta(days=d) for d in range(days_in_month)]
+        all_calendar_dates.extend(current_month_dates)
+        logging.debug(f"  Current month dates added. Last date: {all_calendar_dates[-1]}")
+
+
+        # Add padding days from the next month to fill the grid (usually up to 6 weeks total)
+        # A standard calendar grid often has 35 (5x7) or 42 (6x7) cells.
+        # Let's aim for 42 cells (6 weeks) for consistency.
+        total_cells = 42 # Or calculate based on start weekday + days_in_month if needed
+        days_needed_from_next = total_cells - len(all_calendar_dates)
+        logging.debug(f"Current grid size: {len(all_calendar_dates)}. Need {days_needed_from_next} padding days from next month (aiming for {total_cells} total).")
+
+        if days_needed_from_next > 0:
+             next_month_start_date = plan_end_date + timedelta(days=1)
+             for i in range(days_needed_from_next):
+                 padding_date = next_month_start_date + timedelta(days=i)
+                 all_calendar_dates.append(padding_date)
+                 logging.debug(f"  Adding next month padding: {padding_date}")
+        logging.debug(f"Final all_calendar_dates length: {len(all_calendar_dates)}")
+        # =====================================================================
+
+        # 6. Render HTML Template
+        logging.debug("Rendering maintenance_plan_template.html for web view")
+        return render_template(
+            'maintenance_plan_template.html',
+            title=f"Maintenance Plan - {month_name_str}",
+            # Pass the CORRECT variable name needed by the template:
+            all_calendar_dates=all_calendar_dates,
+            # Other variables:
+            equipment_list=equipment_list,
+            plan_data=plan_data,
+            date_today=date.today(), # Pass today's date object
+            generation_info=generation_info,
+            current_year=year,
+            current_month=month,
+            WEASYPRINT_AVAILABLE = WEASYPRINT_AVAILABLE # Pass PDF availability flag
+            # Removed dates_in_month as it's not directly used by the new template
+        )
+
+    except Exception as e:
+        # Log the full traceback for better debugging
+        logging.error(f"--- Error loading maintenance plan view: {e} ---", exc_info=True)
+        flash(f"An error occurred while loading the plan view: {e}", "danger")
+        # Render the template in an error state
+        return render_template('maintenance_plan_template.html',
+                               title="Maintenance Plan - Error",
+                               error=f"An unexpected error occurred: {e}", # Pass the specific error message
+                               equipment_list=[], # Provide empty lists/defaults
+                               all_calendar_dates=[],
+                               plan_data={},
+                               date_today=date.today(),
+                               current_year=request.args.get('year', date.today().year, type=int), # Try to get current year/month even on error
+                               current_month=request.args.get('month', date.today().month, type=int),
+                               generation_info="Error loading plan",
+                               WEASYPRINT_AVAILABLE = WEASYPRINT_AVAILABLE
+                              )
+
 # ==============================================================================
 # === Dashboard Route ===
 # ==============================================================================
+
 @bp.route('/')
 def dashboard():
     logging.debug("--- Entering dashboard route ---")
     try:
         # 1. Fetch Equipment Data (for status and modals)
-        equipment_list = Equipment.query.order_by(Equipment.type, Equipment.name).all()
+        equipment_list = Equipment.query.filter(
+            Equipment.status != 'Sold' # Exclude equipment with status 'Sold'
+        ).order_by(Equipment.type, Equipment.name).all()
         today_str = datetime.utcnow().strftime('%Y-%m-%d') # Naive UTC date string
 
         for eq in equipment_list:
@@ -227,39 +719,204 @@ def dashboard():
 
 @bp.route('/equipment')
 def equipment_list():
-    """Displays a list of all equipment."""
+    """Displays a list of all equipment, grouped by type."""
     try:
-        all_equipment = Equipment.query.order_by(Equipment.type, Equipment.name).all()
-        return render_template('pm_equipment.html', equipment=all_equipment, title='Equipment List')
+        # Fetch all equipment, ordered primarily by type, then code
+        all_equipment_query = Equipment.query.order_by(Equipment.type, Equipment.code).all()
+
+        # Group equipment by type and calculate summaries
+        grouped_equipment = defaultdict(lambda: {'items': [], 'total': 0, 'operational': 0})
+
+        for item in all_equipment_query:
+            group_key = item.type if item.type else "Uncategorized" # Handle potential None type
+            grouped_equipment[group_key]['items'].append(item)
+            grouped_equipment[group_key]['total'] += 1
+            # Count how many are 'Operational' (case-insensitive check might be safer)
+            if item.status and item.status.lower() == 'operational':
+                grouped_equipment[group_key]['operational'] += 1
+
+        # Sort the groups by type name for consistent order
+        sorted_grouped_equipment = dict(sorted(grouped_equipment.items()))
+
+        # Fetch form values from query parameters if redirected on validation error
+        current_data = {
+            'code': request.args.get('code', ''),
+            'name': request.args.get('name', ''),
+            'type': request.args.get('type', ''),
+            'checklist_required': request.args.get('checklist_required') == 'true', # Convert string back to bool
+            'status': request.args.get('status', 'Operational')
+        }
+
+        return render_template(
+            'pm_equipment.html',
+            grouped_equipment=sorted_grouped_equipment, # Pass grouped data
+            equipment_statuses=EQUIPMENT_STATUSES, # Pass statuses for forms
+            current_data=current_data, # Pass potentially repopulated data
+            title='Manage Equipment'
+        )
     except Exception as e:
+        logging.error(f"Error loading equipment list: {e}", exc_info=True)
         flash(f"Error loading equipment list: {e}", "danger")
-        return render_template('pm_equipment.html', title='Equipment List', error=True)
+        # Provide empty dict and statuses even on error to prevent template crashes
+        return render_template('pm_equipment.html',
+                                title='Manage Equipment',
+                                error=True,
+                                grouped_equipment={},
+                                equipment_statuses=EQUIPMENT_STATUSES,
+                                current_data={})
 
-@bp.route('/equipment/new', methods=['GET', 'POST'])
+@bp.route('/equipment/add', methods=['POST'])
 def add_equipment():
-    if request.method == 'POST':
-        code = request.form.get('code')  # New field
-        name = request.form.get('name')
-        type = request.form.get('type')
-        checklist_required = 'checklist_required' in request.form
+    """Processes the form submission for adding new equipment."""
+    code = request.form.get('code', '').strip()
+    name = request.form.get('name', '').strip()
+    type = request.form.get('type')
+    checklist_required = 'checklist_required' in request.form
+    status = request.form.get('status', 'Operational') # Default if not sent
 
-        if not code or not name or not type:
-            flash('Equipment Code, Name, and Type are required.', 'warning')
-            return render_template('pm_add_equipment.html', title='Add Equipment')
+    # Store current values for potential repopulation on error
+    current_data_for_redirect = {
+        'code': code,
+        'name': name,
+        'type': type,
+        'checklist_required': 'true' if checklist_required else 'false', # Pass as string
+        'status': status
+    }
+    # Build query parameters string from the dict
+    query_params = urlencode(current_data_for_redirect)
 
-        existing_equipment = Equipment.query.filter_by(code=code).first()
-        if existing_equipment:
-            flash(f'Equipment with code "{code}" already exists.', 'warning')
-            return render_template('pm_add_equipment.html', title='Add Equipment', 
-                                 current_code=code, current_name=name, current_type=type, 
-                                 current_checklist=checklist_required)
 
-        new_equipment = Equipment(code=code, name=name, type=type, checklist_required=checklist_required)
+    # --- Validation ---
+    errors = False
+    if not code:
+        flash('Equipment Code is required.', 'warning')
+        errors = True
+    if not name:
+        flash('Equipment Name is required.', 'warning')
+        errors = True
+    if not type:
+        flash('Equipment Type is required.', 'warning')
+        errors = True
+    if status not in EQUIPMENT_STATUSES:
+        flash(f'Invalid Equipment Status "{status}".', 'warning')
+        errors = True # Or handle differently, maybe just default
+
+    # Check for existing code
+    existing_equipment = Equipment.query.filter(func.lower(Equipment.code) == func.lower(code)).first()
+    if existing_equipment:
+        flash(f'Equipment with code "{code}" already exists.', 'warning')
+        errors = True
+
+    if errors:
+         # Redirect back to the equipment list page with query params to repopulate form
+         return redirect(url_for('planned_maintenance.equipment_list') + '?' + query_params + '#addEquipmentForm')
+
+
+    # --- Add to DB ---
+    try:
+        new_equipment = Equipment(
+            code=code,
+            name=name,
+            type=type,
+            checklist_required=checklist_required,
+            status=status # Add the status
+        )
         db.session.add(new_equipment)
         db.session.commit()
         flash(f'Equipment "{code} - {name}" added successfully!', 'success')
+        # Redirect to the main list, clearing any previous error params
         return redirect(url_for('planned_maintenance.equipment_list'))
-    return render_template('pm_add_equipment.html', title='Add Equipment')
+
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error adding equipment: {e}", exc_info=True)
+        flash(f"Database error adding equipment: {e}", "danger")
+        # Redirect back with data for repopulation
+        return redirect(url_for('planned_maintenance.equipment_list') + '?' + query_params + '#addEquipmentForm')
+
+@bp.route('/equipment/edit/<int:id>', methods=['GET', 'POST'])
+def edit_equipment(id):
+    """Displays the edit form (GET) or processes the update (POST) for equipment."""
+    equipment_to_edit = Equipment.query.get_or_404(id)
+
+    if request.method == 'POST':
+        try:
+            original_code = equipment_to_edit.code
+            new_code = request.form.get('code', '').strip()
+            new_name = request.form.get('name', '').strip()
+            new_type = request.form.get('type')
+            new_checklist_required = 'checklist_required' in request.form
+            new_status = request.form.get('status')
+
+            # --- Validation ---
+            errors = False
+            if not new_code:
+                flash('Equipment Code is required.', 'warning')
+                errors = True
+            if not new_name:
+                flash('Equipment Name is required.', 'warning')
+                errors = True
+            if not new_type:
+                flash('Equipment Type is required.', 'warning')
+                errors = True
+            if not new_status or new_status not in EQUIPMENT_STATUSES:
+                flash('A valid Equipment Status is required.', 'warning')
+                errors = True
+
+            # Check if code changed and if the new code already exists
+            if new_code.lower() != original_code.lower():
+                existing = Equipment.query.filter(func.lower(Equipment.code) == func.lower(new_code)).first()
+                if existing:
+                    flash(f'Equipment code "{new_code}" already exists.', 'warning')
+                    errors = True
+
+            if errors:
+                 # Re-render the edit form with current (potentially invalid) data
+                 # We need to pass the data back to the template
+                 # Create a temporary object or dict with the submitted data
+                 submitted_data = {
+                     'id': id, # Keep the ID
+                     'code': new_code,
+                     'name': new_name,
+                     'type': new_type,
+                     'checklist_required': new_checklist_required,
+                     'status': new_status
+                 }
+                 # Render the edit template again
+                 return render_template('pm_edit_equipment.html',
+                                        title=f'Edit {original_code}',
+                                        equipment=submitted_data, # Pass the submitted data
+                                        equipment_statuses=EQUIPMENT_STATUSES)
+
+
+            # --- Update DB ---
+            equipment_to_edit.code = new_code
+            equipment_to_edit.name = new_name
+            equipment_to_edit.type = new_type
+            equipment_to_edit.checklist_required = new_checklist_required
+            equipment_to_edit.status = new_status
+
+            db.session.commit()
+            flash(f'Equipment "{equipment_to_edit.code}" updated successfully!', 'success')
+            return redirect(url_for('planned_maintenance.equipment_list'))
+
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Error updating equipment (id: {id}): {e}", exc_info=True)
+            flash(f"Error updating equipment: {e}", "danger")
+            # Re-render edit form, pass original object back after rollback
+            return render_template('pm_edit_equipment.html',
+                                   title=f'Edit {equipment_to_edit.code}', # Use original code in title
+                                   equipment=equipment_to_edit, # Pass original object
+                                   equipment_statuses=EQUIPMENT_STATUSES)
+
+    # --- Handle GET Request ---
+    # Pass the actual equipment object fetched by get_or_404
+    return render_template('pm_edit_equipment.html',
+                           title=f'Edit {equipment_to_edit.code}',
+                           equipment=equipment_to_edit, # Pass the DB object
+                           equipment_statuses=EQUIPMENT_STATUSES)
+
 
 @bp.route('/job_card/complete/<int:id>', methods=['GET', 'POST'])
 def complete_job_card(id):
@@ -694,57 +1351,145 @@ def calculate_task_due_status(task, current_time): # Accept current_time (naive 
 def tasks_list():
     logging.debug("--- Entering tasks_list route ---")
     try:
-        # ... (existing code: type_filter, query setup) ...
         type_filter = request.args.get('type')
         query = MaintenanceTask.query.join(Equipment)
         if type_filter:
             query = query.filter(Equipment.type == type_filter)
-        all_tasks_query = query.order_by(Equipment.code, Equipment.name, MaintenanceTask.id).all()
+        # Fetch tasks WITH equipment eagerly loaded to avoid N+1 in loops
+        all_tasks_query = query.options(db.joinedload(MaintenanceTask.equipment_ref)).order_by(Equipment.code, Equipment.name, MaintenanceTask.id).all()
 
         current_time_for_list = datetime.utcnow() # Naive UTC
         logging.debug(f"Tasks List using current_time: {current_time_for_list}")
 
-        tasks_by_equipment = {}
-        for task in all_tasks_query: # Use a different variable name
+        tasks_by_equipment = defaultdict(list) # Use defaultdict for easier appending
+        for task in all_tasks_query:
+            # Ensure equipment_ref is loaded (should be by joinedload)
+            if not task.equipment_ref:
+                logging.error(f"Task {task.id} is missing equipment reference. Skipping.")
+                continue
             eq_key = (task.equipment_ref.code, task.equipment_ref.name, task.equipment_ref.type)
-            if eq_key not in tasks_by_equipment:
-                tasks_by_equipment[eq_key] = []
-
-            # Calculate status and add attributes
+            # Calculate status and add attributes directly to the task object
             status, due_info, due_date, last_performed_info, next_due_info, estimated_days_info = \
                 calculate_task_due_status(task, current_time_for_list)
-            task.due_status = status
+            task.due_status = status # Store the full status string
             task.due_info = due_info
             task.due_date = due_date
             task.last_performed_info = last_performed_info
             task.next_due_info = next_due_info
             task.estimated_days_info = estimated_days_info
-            tasks_by_equipment[eq_key].append(task) # Add task object with attributes
+            tasks_by_equipment[eq_key].append(task)
 
-        # --- Sort tasks within each equipment group ---
-        sort_order_tasks = { # Define sort order again or make it global/helper
-            'Overdue': 1, 'Due Soon': 2, 'Warning': 3, 'OK': 4,
-            'Error': 5, 'Never Performed': 6, 'Unknown': 7
+        # --- Define Status Priority AND Header Label Mapping ---
+        # Priority: Lower number = higher priority
+        # Label: The text to display in the header badge
+        status_config = {
+            # Base Status Key: (Priority, Header Label)
+            'Overdue':          (1, 'Overdue'),
+            'Due Soon':         (2, 'Due Soon'),
+            'Warning':          (3, 'Warning'),
+            'Error':            (4, 'Error'), # Separate Error from Warning?
+            'Never Performed':  (5, 'Never Done'),
+            'OK':               (6, 'OK'),
+            'Unknown':          (7, 'Unknown')
+            # Add other base statuses returned by calculate_task_due_status if needed
         }
-        def get_tasks_sort_key(task_item):
-            status_str = getattr(task_item, 'due_status', 'Unknown')
-            if not isinstance(status_str, str): status_str = 'Unknown'
-            first_word = status_str.split(' ')[0]
-            return sort_order_tasks.get(first_word, 99)
+        default_priority = 99
+        default_label = 'Unknown'
+        ok_priority = status_config.get('OK', (default_priority, default_label))[0]
+        ok_label = status_config.get('OK', (default_priority, default_label))[1]
 
-        sorted_tasks_by_equipment = {}
-        # Sort equipment keys alphabetically for consistent display order
+
+        # --- Process tasks for sorting and header status ---
+        processed_tasks_data = {}
+        # Sort equipment keys alphabetically first
         sorted_equipment_keys = sorted(tasks_by_equipment.keys())
 
         for eq_key in sorted_equipment_keys:
             tasks_list_for_eq = tasks_by_equipment[eq_key]
+            highest_priority_level_found = ok_priority # Start assuming OK priority
+
+            # --- First pass: Find the highest priority level in the group ---
+            for task in tasks_list_for_eq:
+                # Ensure task has a status string before processing
+                if not hasattr(task, 'due_status') or not isinstance(task.due_status, str):
+                    logging.warning(f"Task {getattr(task, 'id', 'N/A')} missing valid due_status attribute. Assigning default priority.")
+                    current_prio = default_priority
+                else:
+                    # --- CORRECTED: Extract base status reliably ---
+                    # Handle variations like 'Overdue (First)', 'Due Soon (First)', 'Unknown (No Usage)' etc.
+                    # We want the core status word recognized by status_config keys
+                    current_status_str = task.due_status # e.g., "Due Soon (First)"
+                    current_prio = default_priority # Default if no match found below
+                    matched_base = None
+
+                    # Check for specific keywords IN ORDER OF PRIORITY (most specific first)
+                    # This ensures "Due Soon" is caught before just "Due" if that were a key
+                    if 'Overdue' in current_status_str: matched_base = 'Overdue'
+                    elif 'Due Soon' in current_status_str: matched_base = 'Due Soon'
+                    elif 'Warning' in current_status_str: matched_base = 'Warning'
+                    elif 'Error' in current_status_str: matched_base = 'Error'
+                    elif 'Never Performed' in current_status_str: matched_base = 'Never Performed'
+                    elif 'OK' in current_status_str: matched_base = 'OK' # Must be checked after more specific ones
+                    elif 'Unknown' in current_status_str: matched_base = 'Unknown'
+                    # Add elif for other specific statuses if needed
+
+                    # Get priority from config if a base status was matched
+                    if matched_base and matched_base in status_config:
+                        current_prio = status_config[matched_base][0]
+                    else:
+                        # Log if status wasn't mapped - indicates potential need to update status_config
+                         logging.warning(f"Status '{current_status_str}' for task {task.id} did not map to a known base status in status_config. Using default priority.")
+                         # current_prio remains default_priority
+
+                # Update the highest priority level found so far
+                if current_prio < highest_priority_level_found:
+                    highest_priority_level_found = current_prio
+                    logging.debug(f"  Eq {eq_key}: New highest prio level found: {highest_priority_level_found} from task {task.id} (status: {task.due_status})")
+
+
+            # --- Determine the final header label based on the highest priority level found ---
+            final_header_label = default_label # Default
+            # Find the label corresponding to the highest priority level achieved
+            for base_status, (prio, label) in status_config.items():
+                if prio == highest_priority_level_found:
+                    final_header_label = label
+                    break # Found the matching label
+            logging.debug(f"Eq {eq_key}: Final highest prio level: {highest_priority_level_found}, Assigned Header Label: '{final_header_label}'")
+
+            # --- Second pass (or combined): Sort the tasks list itself ---
+            # Use a stable sort key function referencing the config
+            def get_tasks_sort_key(task_item):
+                sort_prio = default_priority # Default
+                sort_matched_base = None
+                if hasattr(task_item, 'due_status') and isinstance(task_item.due_status, str):
+                    status_str = task_item.due_status
+                    # Use same matching logic as priority finding for consistency
+                    if 'Overdue' in status_str: sort_matched_base = 'Overdue'
+                    elif 'Due Soon' in status_str: sort_matched_base = 'Due Soon'
+                    elif 'Warning' in status_str: sort_matched_base = 'Warning'
+                    elif 'Error' in status_str: sort_matched_base = 'Error'
+                    elif 'Never Performed' in status_str: sort_matched_base = 'Never Performed'
+                    elif 'OK' in status_str: sort_matched_base = 'OK'
+                    elif 'Unknown' in status_str: sort_matched_base = 'Unknown'
+
+                    if sort_matched_base and sort_matched_base in status_config:
+                        sort_prio = status_config[sort_matched_base][0]
+
+                # Add secondary sort criteria if needed (e.g., by due date/remaining value within the same status)
+                # return (sort_prio, task_item.due_date or date.max) # Example secondary sort
+                return sort_prio
+
             try:
                  tasks_list_for_eq.sort(key=get_tasks_sort_key)
-                 sorted_tasks_by_equipment[eq_key] = tasks_list_for_eq
             except Exception as eq_sort_exc:
                 logging.error(f"Error sorting tasks for equipment {eq_key}: {eq_sort_exc}", exc_info=True)
-                sorted_tasks_by_equipment[eq_key] = tasks_by_equipment[eq_key] # Use unsorted list on error
+                # Use unsorted list on error
 
+            # Store the sorted list and the final header status label
+            processed_tasks_data[eq_key] = {
+                'tasks': tasks_list_for_eq,
+                'header_status': final_header_label # Use the label derived from the highest priority
+            }
 
         equipment_types = db.session.query(Equipment.type).distinct().order_by(Equipment.type).all()
         equipment_types = [t[0] for t in equipment_types]
@@ -752,7 +1497,7 @@ def tasks_list():
         logging.debug("--- Rendering pm_tasks.html ---")
         return render_template(
             'pm_tasks.html',
-            tasks_by_equipment=sorted_tasks_by_equipment, # Pass the sorted dictionary
+            tasks_data=processed_tasks_data, # Pass the new structure
             equipment_types=equipment_types,
             type_filter=type_filter,
             title='Maintenance Tasks'
@@ -760,8 +1505,9 @@ def tasks_list():
     except Exception as e:
         logging.error(f"--- Error loading tasks_list page: {e} ---", exc_info=True)
         flash(f"Error loading maintenance tasks: {e}", "danger")
+        # Pass empty data structure to avoid template errors
         return render_template('pm_tasks.html',
-                               tasks_by_equipment={},
+                               tasks_data={},
                                equipment_types=[],
                                type_filter=request.args.get('type'),
                                title='Maintenance Tasks',

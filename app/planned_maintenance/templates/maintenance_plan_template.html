@@ -1,0 +1,386 @@
+{# tkr_system/app/templates/maintenance_plan_template.html #}
+{% extends "pm_base.html" %}
+
+{% block title %}Maintenance Plan - {{ current_month | month_name }} {{ current_year }} - {{ super() }}{% endblock %}
+
+{% block styles %}
+{{ super() }}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css"> {# For button icons #}
+<style>
+    /* --- General Setup --- */
+    .calendar-wrapper {
+        padding: 1.5rem; /* More breathing room */
+        background-color: #f8f9fa; /* Light background for the whole section */
+        border-radius: 0.5rem;
+        box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.05);
+    }
+
+    /* --- Controls --- */
+    .controls-card .card-body { padding: 1rem 1.5rem; }
+    .controls-card form { margin-bottom: 0; }
+    .controls-card .form-label { margin-bottom: 0.2rem; font-weight: 500; font-size: 0.85rem; }
+    .controls-card .btn { min-width: 90px; font-size: 0.9rem; }
+
+    /* --- Calendar Container --- */
+    .calendar-container {
+        background-color: #fff;
+        border: 1px solid #dee2e6;
+        border-radius: 0.3rem;
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        margin-top: 1.5rem;
+    }
+
+    /* --- Calendar Header (Month/Year) --- */
+    .calendar-header {
+        padding: 1rem 1.5rem;
+        background-color: #e9ecef; /* Slightly darker header */
+        border-bottom: 1px solid #dee2e6;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .calendar-header h2 {
+        margin-bottom: 0;
+        font-size: 1.75rem; /* Larger month/year */
+        color: #343a40;
+        font-weight: 500;
+    }
+    .calendar-header .text-muted { font-size: 0.9rem; }
+
+    /* --- Day of Week Header --- */
+    .dow-header {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        text-align: center;
+        font-weight: 600;
+        color: #495057;
+        padding: 0.6rem 0;
+        background-color: #f8f9fa; /* Lighter than main header */
+        border-bottom: 1px solid #dee2e6;
+        font-size: 0.9rem;
+    }
+
+    /* --- Calendar Grid --- */
+    .calendar-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 1px; /* Creates thin grid lines */
+        background-color: #dee2e6; /* Color of the grid lines */
+        border: 1px solid #dee2e6;
+        border-top: none;
+        padding: 1px; /* Contain background */
+        border-bottom-left-radius: 0.3rem;
+        border-bottom-right-radius: 0.3rem;
+        overflow: hidden; /* Important for border radius */
+    }
+
+    /* --- Individual Day Cell --- */
+    .calendar-day {
+        min-height: 140px; /* Ensure consistent cell height */
+        padding: 0.6rem;
+        background-color: #fff;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden; /* Hide overflow initially */
+        transition: background-color 0.2s ease-in-out;
+    }
+    .calendar-day-header {
+        font-size: 0.9rem;
+        font-weight: 600;
+        margin-bottom: 0.4rem;
+        text-align: right;
+        color: #6c757d;
+    }
+
+    /* --- Day Cell Variations --- */
+    .calendar-day.other-month {
+        background-color: #f8f9fa; /* Grey out days not in current month */
+    }
+    .calendar-day.other-month .calendar-day-header {
+        color: #adb5bd;
+        font-weight: 400;
+    }
+    .calendar-day.weekend:not(.other-month) {
+        background-color: #fdfdfe; /* Very subtle weekend indication */
+    }
+    .calendar-day.today {
+        background-color: #e6f7ff !important; /* Light blue for today */
+        border: 2px solid #17a2b8; /* Use Bootstrap info color */
+        /* Offset border due to grid gap */
+        margin: -1px; /* Adjust for border width within grid */
+        z-index: 1;
+        border-radius: 3px;
+    }
+    .calendar-day.today .calendar-day-header {
+        font-weight: 700;
+        color: #0056b3; /* Darker blue */
+        font-size: 1rem; /* Make today's date slightly bigger */
+    }
+
+    /* --- Task List within Day Cell --- */
+    .task-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        font-size: 0.8rem; /* Smaller font for tasks */
+        flex-grow: 1; /* Allow list to take available space */
+        overflow-y: auto; /* Enable vertical scroll if tasks overflow */
+        max-height: 90px; /* Limit height before scrolling starts */
+        /* Custom scrollbar (optional, webkit only) */
+        &::-webkit-scrollbar { width: 5px; }
+        &::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 3px;}
+        &::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px;}
+        &::-webkit-scrollbar-thumb:hover { background: #aaa; }
+    }
+    .calendar-day.other-month .task-list {
+        display: none; /* Hide task list entirely for other months */
+    }
+
+    /* --- Individual Task Item --- */
+    .task-item {
+        margin-bottom: 4px;
+        padding: 4px 7px; /* Slightly more padding */
+        border-radius: 4px;
+        background-color: #cfe2ff; /* Default task (info light) */
+        border: 1px solid #b6d4fe;
+        line-height: 1.3;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        cursor: help; /* Indicate tooltip */
+        transition: background-color 0.2s ease;
+        position: relative; /* Needed for tooltip positioning */
+    }
+    .task-item:hover {
+        background-color: #a6c8ff; /* Darker on hover */
+        z-index: 5; /* Bring hovered item slightly forward */
+    }
+    .task-item.estimated {
+        background-color: #fff3cd; /* Estimated task (warning light) */
+        border-color: #ffeeba;
+    }
+     .task-item.estimated:hover {
+        background-color: #ffe8a1;
+    }
+    .task-item .equipment-code {
+        font-weight: 600;
+        color: #333;
+        margin-right: 4px;
+    }
+    .task-item .task-desc { /* Class for the description part */
+        color: #444;
+    }
+    .task-item i { /* Style for the (E) marker */
+        font-size: 0.8em;
+        color: #555;
+        margin-left: 2px;
+    }
+
+    /* --- Tooltip (CSS Only) --- */
+    .task-item[data-tooltip]:hover::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        bottom: 110%; /* Position above */
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: rgba(0, 0, 0, 0.85);
+        color: #fff;
+        padding: 5px 10px;
+        border-radius: 5px;
+        font-size: 0.75rem; /* Smaller tooltip font */
+        white-space: normal; /* Allow wrapping */
+        width: max-content; /* Adjust width */
+        max-width: 250px; /* Limit max width */
+        z-index: 10; /* Ensure tooltip is on top */
+        pointer-events: none; /* Prevent tooltip from interfering with mouse */
+        box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    }
+
+    /* --- No Data / Error State --- */
+    .no-data-alert {
+        margin-top: 1.5rem;
+    }
+
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="calendar-wrapper"> {# Wrapper for controls + calendar #}
+
+    {# --- Controls Section --- #}
+    <div class="card mb-4 shadow-sm controls-card">
+        <div class="card-header bg-light fw-bold">
+            Maintenance Plan Controls
+        </div>
+        <div class="card-body">
+            <div class="d-flex flex-wrap align-items-end gap-3">
+                {# View Form #}
+                <form method="GET" action="{{ url_for('planned_maintenance.maintenance_plan_view') }}" class="d-flex gap-2 align-items-end">
+                    <div>
+                        <label for="view_year" class="form-label">Year</label>
+                        <input type="number" class="form-control form-control-sm" id="view_year" name="year" value="{{ current_year }}" min="2020" max="{{ date_today.year + 5 }}">
+                    </div>
+                    <div>
+                        <label for="view_month" class="form-label">Month</label>
+                        <select class="form-select form-select-sm" id="view_month" name="month">
+                            {% for i in range(1, 13) %}
+                            <option value="{{ i }}" {% if i == current_month %}selected{% endif %}>{{ i | month_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-calendar-check-fill"></i> View</button>
+                </form>
+
+                {# Generate Form #}
+                <form method="POST" action="{{ url_for('planned_maintenance.generate_maintenance_plan') }}" class="d-flex gap-2 align-items-end">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}"> {# CSRF Token #}
+                    <div>
+                        <label for="gen_year" class="form-label">Year</label>
+                        <input type="number" class="form-control form-control-sm" id="gen_year" name="year" value="{{ current_year }}" min="2020" max="{{ date_today.year + 5 }}">
+                    </div>
+                    <div>
+                        <label for="gen_month" class="form-label">Month</label>
+                        <select class="form-select form-select-sm" id="gen_month" name="month">
+                            {% for i in range(1, 13) %}
+                            <option value="{{ i }}" {% if i == current_month %}selected{% endif %}>{{ i | month_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-gear-fill"></i> Generate</button>
+                </form>
+
+                {# PDF Download (Pushed to the right) #}
+                <div class="ms-auto">
+                    {% if WEASYPRINT_AVAILABLE is defined and WEASYPRINT_AVAILABLE %}
+                    <a href="{{ url_for('planned_maintenance.maintenance_plan_pdf', year=current_year, month=current_month) }}" class="btn btn-sm btn-danger" target="_blank">
+                        <i class="bi bi-file-earmark-pdf-fill"></i> PDF
+                    </a>
+                    {% else %}
+                    <button class="btn btn-sm btn-secondary" disabled title="PDF Library (WeasyPrint) not installed">
+                        <i class="bi bi-file-earmark-pdf-fill"></i> PDF Disabled
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% if generation_info %}
+        <div class="card-footer text-muted small py-2">{{ generation_info }}</div>
+        {% endif %}
+    </div>
+
+    {# --- Calendar View Section --- #}
+    {# Check if we have the necessary data to build the calendar #}
+    {% if all_calendar_dates is defined and all_calendar_dates %}
+    <div class="calendar-container">
+        <div class="calendar-header">
+             <h2>{{ current_month | month_name }} {{ current_year }}</h2>
+             {# Optional: Show equipment count if list provided #}
+             {% if equipment_list %}
+             <small class="text-muted">Plan includes {{ equipment_list|length }} equipment item(s)</small>
+             {% endif %}
+        </div>
+
+        {# Day of Week Header #}
+        <div class="dow-header">
+            <div>Mon</div>
+            <div>Tue</div>
+            <div>Wed</div>
+            <div>Thu</div>
+            <div>Fri</div>
+            <div>Sat</div>
+            <div>Sun</div>
+        </div>
+
+        {# Calendar Grid #}
+        <div class="calendar-grid">
+            {# Loop through all dates provided by the backend (includes padding days) #}
+            {% for day_obj in all_calendar_dates %}
+                {# Determine styling classes for the day cell #}
+                {% set is_current_month = (day_obj.month == current_month) %}
+                {% set is_today = (day_obj == date_today) %}
+                {% set is_weekend = (day_obj.weekday() >= 5) %} {# Monday=0, Sunday=6 #}
+                {% set day_classes = ['calendar-day'] %}
+                {% if not is_current_month %}{% set _ = day_classes.append('other-month') %}{% endif %}
+                {% if is_today %}{% set _ = day_classes.append('today') %}{% endif %}
+                {% if is_weekend %}{% set _ = day_classes.append('weekend') %}{% endif %}
+
+                {# Render the day cell #}
+                <div class="{{ day_classes | join(' ') }}">
+                    <div class="calendar-day-header">{{ day_obj.day }}</div>
+
+                    {# Only show tasks for days within the currently selected month #}
+                    {# Assumes plan_data = {eq_id: {date_obj: [task_label1, task_label2]}} #}
+                    {# Assumes equipment_list is a list of equipment objects with .id and .code #}
+                    {% if is_current_month and plan_data is defined and equipment_list is defined %}
+                    <ul class="task-list">
+                        {% for eq in equipment_list %}
+                            {# Get tasks for this specific equipment and day from plan_data #}
+                            {% set tasks_for_day = plan_data.get(eq.id, {}).get(day_obj, []) %}
+                            {% if tasks_for_day %}
+                                {% for task_label in tasks_for_day %}
+                                    {# Determine if task is an estimate #}
+                                    {% set is_estimated = '(Est.)' in task_label %}
+                                    {% set clean_task_desc = task_label | replace('(Est.)', '') | trim %}
+                                    {# Create tooltip text #}
+                                    {% set tooltip_text = eq.code + ': ' + task_label %}
+
+                                    <li class="task-item {% if is_estimated %}estimated{% endif %}" data-tooltip="{{ tooltip_text }}">
+                                        <span class="equipment-code">{{ eq.code }}:</span>
+                                        <span class="task-desc">{{ clean_task_desc }}</span>
+                                        {% if is_estimated %}<i>(E)</i>{% endif %}
+                                    </li>
+                                {% endfor %} {# End task_label loop #}
+                            {% endif %} {# End if tasks_for_day #}
+                        {% endfor %} {# End equipment_list loop #}
+                    </ul>
+                    {% endif %} {# End if is_current_month and data exists #}
+                </div> {# End calendar-day #}
+            {% endfor %} {# End loop through all_calendar_dates #}
+        </div> {# End calendar-grid #}
+    </div> {# End calendar-container #}
+
+    {# --- Handling Error or No Data States --- #}
+    {% else %}
+    {# Show message if calendar dates couldn't be generated or other error occurred #}
+    <div class="alert alert-warning mt-4 no-data-alert">
+        {% if error %}
+            <strong>Error:</strong> {{ error }}
+        {% elif not equipment_list is defined or not equipment_list %}
+            Cannot display plan. Please <a href="{{ url_for('planned_maintenance.add_equipment') }}">add equipment</a> first.
+        {% elif not plan_data is defined or not plan_data %}
+             Plan data not found for {{ current_month | month_name }} {{ current_year }}.
+             {% if generation_info and 'not generated' in generation_info|lower %}
+                 Use the 'Generate' button above to create the schedule for this period.
+             {% else %}
+                 No tasks were scheduled for this period, or the plan needs to be generated. Ensure tasks are defined with appropriate intervals. <a href="{{ url_for('planned_maintenance.tasks_list') }}">Manage Tasks</a>.
+             {% endif %}
+        {% else %}
+             Could not load calendar data. Please check the selected month/year or try generating the plan again.
+        {% endif %}
+    </div>
+    {% endif %} {# End check for all_calendar_dates #}
+
+</div> {# End calendar-wrapper #}
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // Scroll today's cell into view if present on the calendar
+        const todayCell = document.querySelector('.calendar-day.today');
+        if (todayCell) {
+            // Using standard scrollIntoView - 'center' tries to vertically center it
+            todayCell.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        }
+
+        // Optional: If you were using Bootstrap's JS tooltips elsewhere, re-initialize them.
+        // The current CSS handles the task tooltips without JS.
+        // var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+        // var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+        //   return new bootstrap.Tooltip(tooltipTriggerEl)
+        // })
+    });
+</script>
+{% endblock %}
