@@ -3,7 +3,7 @@ import logging
 from flask import render_template, request, redirect, url_for, flash, make_response
 from urllib.parse import urlencode
 # Corrected datetime imports
-from datetime import datetime, timedelta, timezone, date, UTC
+from datetime import datetime, timedelta, timezone, date
 from dateutil.parser import parse as parse_datetime
 from dateutil.relativedelta import relativedelta
 from calendar import monthrange
@@ -1112,7 +1112,7 @@ def new_job_card():
                 flash('Invalid due date format.', 'warning')
                 return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
-        year = datetime.now(UTC).year
+        year = datetime.now(timezone.utc).year
         count = JobCard.query.count() + 1
         job_number = f"JC-{year}-{count:04d}"
 
@@ -1186,7 +1186,7 @@ def new_checklist():
                 equipment_id=equipment_id,
                 status=status,
                 issues=issues,
-                check_date=datetime.now(UTC) # Log time automatically
+                check_date=datetime.now(timezone.utc) # Log time automatically
             )
             logging.debug(f"New checklist check_date: {new_log.check_date} ({new_log.check_date.tzinfo})")
             db.session.add(new_log)
@@ -1599,7 +1599,7 @@ def add_usage():
                  flash("Invalid Usage Value.", "warning")
                  return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
-            log_date = datetime.now(UTC)
+            log_date = datetime.now(timezone.utc)
             if log_date_str:
                 try:
                     log_date = parse_datetime(log_date_str)
