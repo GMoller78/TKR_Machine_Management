@@ -25,8 +25,7 @@ bp = Blueprint(
     'planned_maintenance', 
     __name__, 
     template_folder='templates', 
-    static_folder='static', 
-    url_prefix='/planned-maintenance' 
+    static_folder='static'
 )
 
 # Import routes after blueprint creation to avoid circular imports
