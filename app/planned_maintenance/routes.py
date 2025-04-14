@@ -18,7 +18,7 @@ from app.models import (
 )
 from itertools import zip_longest
 # Corrected SQLAlchemy imports (added extract)
-from sqlalchemy import desc, func, extract
+from sqlalchemy import desc, func, extract, and_
 import traceback
 from collections import defaultdict
 
@@ -334,180 +334,203 @@ def maintenance_plan_pdf():
         return redirect(url_for('planned_maintenance.dashboard'))
 
 # ==============================================================================
-# === Maintenance Plan Web View Route ===
+# === NEW Route: List Generated Maintenance Plans ===
 # ==============================================================================
-@bp.route('/maintenance_plan', methods=['GET']) # Use GET for viewing
-def maintenance_plan_view():
-    logging.debug("--- Request for Maintenance Plan View ---")
+@bp.route('/maintenance_plan') # Changed root path to list
+def maintenance_plan_list_view():
+    logging.debug("--- Request for Maintenance Plan List View ---")
     try:
-        # 1. Get Target Month/Year from Query Parameters (remains the same)
+        # Query distinct year/month pairs for which plan entries exist
+        existing_plans_query = db.session.query(
+            MaintenancePlanEntry.plan_year,
+            MaintenancePlanEntry.plan_month,
+            func.max(MaintenancePlanEntry.generated_at).label('last_generated') # Get latest generation time for the period
+        ).group_by(
+            MaintenancePlanEntry.plan_year,
+            MaintenancePlanEntry.plan_month
+        ).order_by(
+            desc(MaintenancePlanEntry.plan_year),
+            desc(MaintenancePlanEntry.plan_month)
+        ).all()
+
+        existing_plans = []
+        for year, month, generated_at in existing_plans_query:
+            # Convert naive UTC stored time to display format
+            generated_str = "Unknown"
+            if generated_at:
+                 if generated_at.tzinfo is not None:
+                     generated_at_naive = generated_at.astimezone(timezone.utc).replace(tzinfo=None)
+                 else:
+                     generated_at_naive = generated_at # Assume already naive UTC
+                 generated_str = generated_at_naive.strftime('%Y-%m-%d %H:%M UTC')
+
+            existing_plans.append({
+                'year': year,
+                'month': month,
+                'month_name': date(year, month, 1).strftime('%B'), # Get month name
+                'generated_at': generated_str
+            })
+
+        today = date.today()
+        current_year=today.year
+        current_month=today.month
+
+        logging.debug(f"Found {len(existing_plans)} existing plan periods.")
+
+        return render_template(
+            'maintenance_plan_list.html', # NEW Template name
+            title="Maintenance Plans",
+            existing_plans=existing_plans,
+            current_year=current_year,
+            current_month=current_month,
+            date_today=today, # Pass today's date for form defaults
+            WEASYPRINT_AVAILABLE = WEASYPRINT_AVAILABLE # Pass PDF availability flag
+        )
+
+    except Exception as e:
+        logging.error(f"--- Error loading maintenance plan list view: {e} ---", exc_info=True)
+        flash(f"An error occurred while loading the plan list: {e}", "danger")
+        return render_template('maintenance_plan_list.html', # Still render list template on error
+                               title="Maintenance Plans - Error",
+                               error=f"An unexpected error occurred: {e}",
+                               existing_plans=[],
+                               current_year=date.today().year,
+                               current_month=date.today().month,
+                               date_today=date.today(),
+                               WEASYPRINT_AVAILABLE = WEASYPRINT_AVAILABLE
+                              )
+
+
+# ==============================================================================
+# === MODIFIED Route: View Plan Details (Planned vs Actual) ===
+# ==============================================================================
+@bp.route('/maintenance_plan/detail', methods=['GET']) # Changed path
+def maintenance_plan_detail_view():
+    logging.debug("--- Request for Maintenance Plan Detail View ---")
+    try:
+        # 1. Get Target Month/Year from Query Parameters
         try:
-            default_date = date.today()
-            year = request.args.get('year', default=default_date.year, type=int)
-            month = request.args.get('month', default=default_date.month, type=int)
+            year = request.args.get('year', type=int)
+            month = request.args.get('month', type=int)
+
+            if not year or not month:
+                flash("Year and Month are required to view plan details.", "warning")
+                return redirect(url_for('planned_maintenance.maintenance_plan_list_view'))
 
             if not (1 <= month <= 12): raise ValueError("Month out of range")
-            current_year_check = date.today().year # Use current system year for sanity check
+            current_year_check = date.today().year
             if not (current_year_check - 10 <= year <= current_year_check + 10): raise ValueError("Year out of reasonable range")
 
         except (ValueError, TypeError):
-            flash("Invalid or missing year/month. Defaulting to current month.", "warning")
-            default_date = date.today()
-            year = default_date.year
-            month = default_date.month
-            # Redirect to the default view to avoid confusion with invalid params
-            return redirect(url_for('planned_maintenance.maintenance_plan_view', year=year, month=month))
+            flash("Invalid year or month specified.", "warning")
+            return redirect(url_for('planned_maintenance.maintenance_plan_list_view'))
 
-        # Calculate Date Range and Month Name (remains the same)
+        # Calculate Date Range and Month Name
         try:
             plan_start_date = date(year, month, 1)
             days_in_month = monthrange(year, month)[1]
             plan_end_date = date(year, month, days_in_month)
-            month_name_str = plan_start_date.strftime("%B %Y") # Renamed variable for clarity
+            month_name_str = plan_start_date.strftime("%B %Y")
+            # Define start and end datetime for job card filtering (naive)
+            month_start_dt = datetime.combine(plan_start_date, time.min)
+            month_end_dt = datetime.combine(plan_end_date, time.max)
         except ValueError:
-             flash(f"Cannot display plan for invalid date {month}/{year}.", "danger")
-             # Redirect to a default valid plan view
-             return redirect(url_for('planned_maintenance.maintenance_plan_view'))
+             flash(f"Cannot display plan details for invalid date {month}/{year}.", "danger")
+             return redirect(url_for('planned_maintenance.maintenance_plan_list_view'))
 
-        logging.info(f"Displaying plan view for: {month_name_str}")
+        logging.info(f"Displaying plan detail view for: {month_name_str}")
 
-        # 2. Fetch Equipment List (remains the same)
-        equipment_list = Equipment.query.order_by(Equipment.code).all()
-        if not equipment_list:
-             logging.warning("No equipment found in the database.")
-             # Render template but indicate no equipment exists
-             return render_template('maintenance_plan_template.html',
-                               title=f"Maintenance Plan - {month_name_str}",
-                               equipment_list=[],
-                               all_calendar_dates=[], # Pass empty list
-                               plan_data={},
-                               date_today=date.today(),
-                               current_year=year,
-                               current_month=month,
-                               generation_info="N/A - No Equipment",
-                               WEASYPRINT_AVAILABLE = WEASYPRINT_AVAILABLE,
-                               error="No equipment registered.") # Pass error message
-
-        # 3. Fetch Stored Plan Entries (remains the same)
+        # 2. Fetch Planned Entries for the period
         logging.debug(f"Querying stored plan entries for {year}-{month}...")
         plan_entries = MaintenancePlanEntry.query.filter(
             MaintenancePlanEntry.plan_year == year,
             MaintenancePlanEntry.plan_month == month
         ).options(
-            # Eager load equipment if you access equipment details within the loop below
-             db.joinedload(MaintenancePlanEntry.equipment)
+             db.joinedload(MaintenancePlanEntry.equipment) # Eager load equipment
         ).order_by(
             MaintenancePlanEntry.equipment_id,
             MaintenancePlanEntry.planned_date
         ).all()
-        logging.debug(f"Found {len(plan_entries)} stored entries.")
+        logging.debug(f"Found {len(plan_entries)} planned entries.")
 
-        # 4. Structure Plan Data for the Template (remains the same)
-        plan_data = {}
-        generation_info = "Plan not generated for this period."
+        # 3. Fetch Completed Job Cards for the period
+        logging.debug(f"Querying completed job cards between {month_start_dt} and {month_end_dt}...")
+        completed_job_cards = JobCard.query.filter(
+            JobCard.status == 'Done',
+            JobCard.end_datetime.isnot(None), # Ensure completion time exists
+            JobCard.end_datetime >= month_start_dt, # Completion time within the month
+            JobCard.end_datetime <= month_end_dt
+        ).options(
+             db.joinedload(JobCard.equipment_ref) # Eager load equipment
+        ).order_by(
+             JobCard.equipment_id,
+             JobCard.end_datetime # Order by completion time
+        ).all()
+        logging.debug(f"Found {len(completed_job_cards)} completed job cards.")
+
+        # 4. Structure Data for Comparison View
+        # Group by equipment involved in either planned or completed tasks this month
+        comparison_data = defaultdict(lambda: {'equipment': None, 'planned': [], 'completed': []})
+        all_equipment_ids = set()
+
+        # Process planned entries
+        generation_info = "Plan not generated or no tasks planned for this period."
         if plan_entries:
             latest_generation_time = max((entry.generated_at for entry in plan_entries if entry.generated_at), default=None)
             if latest_generation_time:
-                # Ensure it's naive UTC before formatting
                 if latest_generation_time.tzinfo is not None:
                     latest_generation_time = latest_generation_time.astimezone(timezone.utc).replace(tzinfo=None)
-                generation_info = f"Plan generated on: {latest_generation_time.strftime('%Y-%m-%d %H:%M UTC')}" # Removed seconds
+                generation_info = f"Plan generated on: {latest_generation_time.strftime('%Y-%m-%d %H:%M UTC')}"
             else:
                  generation_info = "Plan generated (time unknown)"
 
-
             for entry in plan_entries:
-                # Ensure planned_date is a date object if stored differently
-                entry_date = entry.planned_date
-                if isinstance(entry_date, datetime):
-                     entry_date = entry_date.date()
-                elif not isinstance(entry_date, date):
-                     logging.warning(f"Skipping entry {entry.id} due to invalid date type: {type(entry_date)}")
-                     continue # Skip if date is not valid
-
                 eq_id = entry.equipment_id
-                if eq_id not in plan_data:
-                    plan_data[eq_id] = {}
-                if entry_date not in plan_data[eq_id]:
-                    plan_data[eq_id][entry_date] = []
+                all_equipment_ids.add(eq_id)
+                if not comparison_data[eq_id]['equipment'] and entry.equipment:
+                    comparison_data[eq_id]['equipment'] = entry.equipment # Store equipment object
+                comparison_data[eq_id]['planned'].append(entry)
 
-                task_label = entry.task_description or "Unnamed Task" # Handle null description
-                if entry.is_estimate:
-                    task_label += " (Est.)"
-                plan_data[eq_id][entry_date].append(task_label)
+        # Process completed job cards
+        for jc in completed_job_cards:
+            eq_id = jc.equipment_id
+            all_equipment_ids.add(eq_id)
+            if not comparison_data[eq_id]['equipment'] and jc.equipment_ref:
+                 comparison_data[eq_id]['equipment'] = jc.equipment_ref # Store equipment object
+            comparison_data[eq_id]['completed'].append(jc)
 
-        # 5. ================== GENERATE all_calendar_dates ==================
-        logging.debug(f"Generating full calendar grid dates for {month_name_str}...")
-        all_calendar_dates = []
-        # Find the weekday of the first day (0=Monday, 6=Sunday)
-        first_day_weekday = plan_start_date.weekday()
+        # Fetch equipment details if not already loaded (e.g., if only completed JCs existed for an equipment)
+        missing_eq_ids = all_equipment_ids - set(k for k, v in comparison_data.items() if v['equipment'])
+        if missing_eq_ids:
+            missing_equipment = Equipment.query.filter(Equipment.id.in_(missing_eq_ids)).all()
+            for eq in missing_equipment:
+                 if not comparison_data[eq.id]['equipment']:
+                     comparison_data[eq.id]['equipment'] = eq
 
-        # Add padding days from the previous month
-        days_from_prev_month = first_day_weekday
-        logging.debug(f"First day ({plan_start_date}) weekday: {first_day_weekday}. Need {days_from_prev_month} padding days from previous month.")
-        for i in range(days_from_prev_month, 0, -1):
-            padding_date = plan_start_date - timedelta(days=i)
-            all_calendar_dates.append(padding_date)
-            logging.debug(f"  Adding prev month padding: {padding_date}")
-
-        # Add days from the current month
-        logging.debug(f"Adding {days_in_month} days for current month...")
-        current_month_dates = [plan_start_date + timedelta(days=d) for d in range(days_in_month)]
-        all_calendar_dates.extend(current_month_dates)
-        logging.debug(f"  Current month dates added. Last date: {all_calendar_dates[-1]}")
+        # Sort the final data by equipment code/name for display
+        # Convert defaultdict to dict and sort
+        sorted_comparison_data = dict(sorted(comparison_data.items(), key=lambda item: getattr(item[1]['equipment'], 'code', 'ZZZ') or 'ZZZ')) # Sort by code, handle None
 
 
-        # Add padding days from the next month to fill the grid (usually up to 6 weeks total)
-        # A standard calendar grid often has 35 (5x7) or 42 (6x7) cells.
-        # Let's aim for 42 cells (6 weeks) for consistency.
-        total_cells = 42 # Or calculate based on start weekday + days_in_month if needed
-        days_needed_from_next = total_cells - len(all_calendar_dates)
-        logging.debug(f"Current grid size: {len(all_calendar_dates)}. Need {days_needed_from_next} padding days from next month (aiming for {total_cells} total).")
-
-        if days_needed_from_next > 0:
-             next_month_start_date = plan_end_date + timedelta(days=1)
-             for i in range(days_needed_from_next):
-                 padding_date = next_month_start_date + timedelta(days=i)
-                 all_calendar_dates.append(padding_date)
-                 logging.debug(f"  Adding next month padding: {padding_date}")
-        logging.debug(f"Final all_calendar_dates length: {len(all_calendar_dates)}")
-        # =====================================================================
-
-        # 6. Render HTML Template
-        logging.debug("Rendering maintenance_plan_template.html for web view")
+        # 5. Render Detail Template
+        logging.debug("Rendering maintenance_plan_detail.html for web view")
         return render_template(
-            'maintenance_plan_template.html',
-            title=f"Maintenance Plan - {month_name_str}",
-            # Pass the CORRECT variable name needed by the template:
-            all_calendar_dates=all_calendar_dates,
-            # Other variables:
-            equipment_list=equipment_list,
-            plan_data=plan_data,
-            date_today=date.today(), # Pass today's date object
-            generation_info=generation_info,
+            'maintenance_plan_detail.html', # NEW Template Name
+            title=f"Plan Details - {month_name_str}",
+            month_name=month_name_str,
             current_year=year,
             current_month=month,
+            comparison_data=sorted_comparison_data, # Pass the structured data
+            generation_info=generation_info,
             WEASYPRINT_AVAILABLE = WEASYPRINT_AVAILABLE # Pass PDF availability flag
-            # Removed dates_in_month as it's not directly used by the new template
         )
 
     except Exception as e:
-        # Log the full traceback for better debugging
-        logging.error(f"--- Error loading maintenance plan view: {e} ---", exc_info=True)
-        flash(f"An error occurred while loading the plan view: {e}", "danger")
-        # Render the template in an error state
-        return render_template('maintenance_plan_template.html',
-                               title="Maintenance Plan - Error",
-                               error=f"An unexpected error occurred: {e}", # Pass the specific error message
-                               equipment_list=[], # Provide empty lists/defaults
-                               all_calendar_dates=[],
-                               plan_data={},
-                               date_today=date.today(),
-                               current_year=request.args.get('year', date.today().year, type=int), # Try to get current year/month even on error
-                               current_month=request.args.get('month', date.today().month, type=int),
-                               generation_info="Error loading plan",
-                               WEASYPRINT_AVAILABLE = WEASYPRINT_AVAILABLE
-                              )
+        logging.error(f"--- Error loading maintenance plan detail view: {e} ---", exc_info=True)
+        flash(f"An error occurred while loading the plan details: {e}", "danger")
+        # Redirect back to the list view on error
+        return redirect(url_for('planned_maintenance.maintenance_plan_list_view'))
+
 
 # ==============================================================================
 # === Dashboard Route ===
@@ -951,6 +974,48 @@ def edit_equipment(id):
                            equipment=equipment_to_edit, # Pass the DB object
                            equipment_statuses=EQUIPMENT_STATUSES)
 
+# ==============================================================================
+# === Job cards            ===
+# ==============================================================================
+@bp.route('/job_card/<int:id>', methods=['GET']) # Use GET to view details
+def job_card_detail(id):
+    """Displays the details of a single Job Card."""
+    logging.debug(f"--- Request to view details for Job Card ID: {id} ---")
+    try:
+        # Fetch the job card with eager loading of related data
+        job_card = JobCard.query.options(
+            db.joinedload(JobCard.equipment_ref), # Load equipment details
+
+            # Use subqueryload for the first level dynamic relationship 'parts_used'
+            # Then chain joinedload for subsequent relationships from JobCardPart
+            db.subqueryload(JobCard.parts_used)  # Load JobCardPart objects in a separate query
+                .joinedload(JobCardPart.part)     # From JobCardPart, load the related Part via JOIN
+                .joinedload(Part.supplier_ref)  # From Part, load the related Supplier via JOIN
+
+        ).get_or_404(id) # Use get_or_404 to handle not found errors
+
+        logging.debug(f"Found Job Card: {job_card.job_number}")
+
+        # Accessing parts in the template (e.g., job_card.parts_used.all())
+        # will now use the pre-loaded data instead of hitting the DB again.
+        # parts_list = job_card.parts_used.all() # Just for logging confirmation if needed
+        # if parts_list:
+        #     logging.debug(f"Found {len(parts_list)} parts associated (pre-loaded).")
+
+        # Render the template to display this data
+        return render_template(
+            'pm_job_card_detail.html', # Your detail template
+            title=f"Job Card {job_card.job_number}",
+            job_card=job_card
+        )
+
+    except Exception as e:
+        logging.error(f"--- Error loading job card detail view for ID {id}: {e} ---", exc_info=True)
+        flash(f"An error occurred while loading the job card details: {e}", "danger")
+        # Redirect to dashboard or job card list on error
+        return redirect(url_for('planned_maintenance.dashboard'))
+
+
 @bp.route('/job_card/complete/<int:id>', methods=['GET', 'POST'])
 def complete_job_card(id):
     job_card = JobCard.query.get_or_404(id)
@@ -1188,6 +1253,9 @@ def new_job_card():
         flash(f"Error creating job card: {e}", "danger")
         return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
+# ==============================================================================
+# === Check Lists ===
+# ==============================================================================
 @bp.route('/checklist/new', methods=['POST'])
 def new_checklist():
     """Logs a new equipment checklist."""

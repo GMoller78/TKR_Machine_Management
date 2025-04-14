@@ -1,0 +1,149 @@
+{# tkr_system/app/templates/pm_job_card_detail.html #}
+{% extends "pm_base.html" %}
+
+{% block title %}{{ title }} - {{ super() }}{% endblock %}
+
+{% block styles %}
+{{ super() }}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+<style>
+    .detail-card { margin-top: 1.5rem; }
+    .detail-card .card-header { font-weight: 600; }
+    .list-group-item span.label {
+        font-weight: 500;
+        min-width: 150px; /* Adjust as needed */
+        display: inline-block;
+        color: #555;
+    }
+    .list-group-item span.value {
+        color: #333;
+    }
+    .parts-list th { font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('planned_maintenance.dashboard') }}">Dashboard</a></li>
+            {# Optional: Add link back to plan list if coming from there #}
+            {# <li class="breadcrumb-item"><a href="{{ url_for('planned_maintenance.maintenance_plan_list_view') }}">Plans</a></li> #}
+            <li class="breadcrumb-item active" aria-current="page">{{ title }}</li>
+        </ol>
+    </nav>
+
+    <div class="card detail-card shadow-sm">
+        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+           <span> Job Card Details: {{ job_card.job_number }}</span>
+            <span>
+                {% if job_card.status == 'To Do' %}
+                    <span class="badge bg-primary">To Do</span>
+                {% elif job_card.status == 'In Progress' %}
+                    <span class="badge bg-warning text-dark">In Progress</span>
+                {% elif job_card.status == 'Done' %}
+                    <span class="badge bg-success">Done</span>
+                {% else %}
+                    <span class="badge bg-secondary">{{ job_card.status }}</span>
+                {% endif %}
+            </span>
+        </div>
+        <div class="card-body">
+             <ul class="list-group list-group-flush">
+                <li class="list-group-item">
+                    <span class="label"><i class="bi bi-tools me-2 text-muted"></i>Description:</span>
+                    <span class="value">{{ job_card.description | nl2br }}</span> {# Use nl2br for line breaks #}
+                </li>
+                 <li class="list-group-item">
+                    <span class="label"><i class="bi bi-truck me-2 text-muted"></i>Equipment:</span>
+                    <span class="value">
+                        {% if job_card.equipment_ref %}
+                            <a href="{{ url_for('planned_maintenance.edit_equipment', id=job_card.equipment_id) }}">
+                                {{ job_card.equipment_ref.code }} - {{ job_card.equipment_ref.name }}
+                            </a>
+                        {% else %}
+                            N/A
+                        {% endif %}
+                    </span>
+                </li>
+                 <li class="list-group-item">
+                    <span class="label"><i class="bi bi-person-fill me-2 text-muted"></i>Technician:</span>
+                    <span class="value">{{ job_card.technician or 'Unassigned' }}</span>
+                </li>
+                <li class="list-group-item">
+                    <span class="label"><i class="bi bi-calendar-event me-2 text-muted"></i>Due Date:</span>
+                    <span class="value">{{ job_card.due_date.strftime('%Y-%m-%d') if job_card.due_date else 'Not Set' }}</span>
+                </li>
+                 <li class="list-group-item">
+                    <span class="label"><i class="bi bi-clock-history me-2 text-muted"></i>Started:</span>
+                    <span class="value">{{ job_card.start_datetime.strftime('%Y-%m-%d %H:%M') if job_card.start_datetime else 'N/A' }}</span>
+                </li>
+                 <li class="list-group-item">
+                    <span class="label"><i class="bi bi-clock-fill me-2 text-muted"></i>Completed:</span>
+                    <span class="value">{{ job_card.end_datetime.strftime('%Y-%m-%d %H:%M') if job_card.end_datetime else 'N/A' }}</span>
+                </li>
+                <li class="list-group-item">
+                    <span class="label"><i class="bi bi-card-checklist me-2 text-muted"></i>OEM Required:</span>
+                    <span class="value">{{ 'Yes' if job_card.oem_required else 'No' }}</span>
+                </li>
+                <li class="list-group-item">
+                    <span class="label"><i class="bi bi-box-seam me-2 text-muted"></i>Kit Required:</span>
+                    <span class="value">{{ 'Yes' if job_card.kit_required else 'No' }}</span>
+                </li>
+                 <li class="list-group-item">
+                    <span class="label"><i class="bi bi-chat-left-text me-2 text-muted"></i>Comments:</span>
+                    <span class="value">{{ job_card.comments | nl2br or 'None' }}</span>
+                </li>
+            </ul>
+
+            {# --- Parts Used Section --- #}
+            <h5 class="mt-4">Parts Used</h5>
+            {% set parts_list = job_card.parts_used.all() %} {# Get parts list #}
+            {% if parts_list %}
+                <div class="table-responsive mt-3">
+                    <table class="table table-sm table-bordered table-striped parts-list">
+                        <thead>
+                            <tr>
+                                <th>Part Number</th>
+                                <th>Name</th>
+                                <th>Quantity</th>
+                                <th>Store</th>
+                                <th>Supplier</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for jc_part in parts_list %}
+                            <tr>
+                                <td>{{ jc_part.part.part_number or 'N/A' }}</td>
+                                <td>{{ jc_part.part.name }}</td>
+                                <td>{{ jc_part.quantity }}</td>
+                                <td>{{ jc_part.part.store }}</td>
+                                <td>{{ jc_part.part.supplier_ref.name if jc_part.part.supplier_ref else 'N/A' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted mt-3">No parts were recorded for this job card.</p>
+            {% endif %}
+
+        </div>
+        <div class="card-footer text-end">
+             {# Add Edit/Complete buttons if needed #}
+             {% if job_card.status != 'Done' %}
+                <a href="{{ url_for('planned_maintenance.complete_job_card', id=job_card.id) }}" class="btn btn-success me-2">
+                    <i class="bi bi-check-lg"></i> Mark Complete
+                </a>
+             {% endif %}
+             {# Add an edit button if you implement an edit job card view #}
+             {# <a href="{{ url_for('planned_maintenance.edit_job_card', id=job_card.id) }}" class="btn btn-secondary">
+                <i class="bi bi-pencil-fill"></i> Edit
+             </a> #}
+        </div>
+    </div>
+
+
+</div>
+{% endblock %}

@@ -1,0 +1,168 @@
+{# tkr_system/app/templates/maintenance_plan_detail.html #}
+{% extends "pm_base.html" %}
+
+{% block title %}{{ title }} - {{ super() }}{% endblock %}
+
+{% block styles %}
+{{ super() }}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+<style>
+    .detail-header {
+        background-color: #e9ecef;
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid #dee2e6;
+        margin-bottom: 1.5rem;
+        border-radius: 0.3rem 0.3rem 0 0; /* Match card header style */
+    }
+    .detail-header h2 {
+        margin-bottom: 0.25rem;
+    }
+    .equipment-section {
+        margin-bottom: 2rem;
+        padding: 1.5rem;
+        background-color: #fff;
+        border: 1px solid #dee2e6;
+        border-radius: 0.3rem;
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    }
+    .equipment-header {
+        font-size: 1.25rem;
+        font-weight: 500;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid #eee;
+        color: #343a40;
+    }
+    .equipment-header .badge {
+        font-size: 0.8rem;
+        vertical-align: middle;
+    }
+    .task-list {
+        list-style: none;
+        padding-left: 0;
+    }
+    .task-list li {
+        padding: 0.4rem 0.6rem;
+        margin-bottom: 0.4rem;
+        border-radius: 0.25rem;
+        font-size: 0.9rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border: 1px solid transparent; /* Base border */
+    }
+    .task-list .planned-task {
+        background-color: #cfe2ff; /* Light blue */
+        border-color: #b6d4fe;
+    }
+    .task-list .planned-task.estimated {
+        background-color: #fff3cd; /* Light yellow for estimates */
+        border-color: #ffeeba;
+    }
+    .task-list .completed-job {
+        background-color: #d1e7dd; /* Light green */
+        border-color: #badbcc;
+    }
+    .task-label { font-weight: 500; }
+    .task-date, .job-date { font-size: 0.85rem; color: #555; }
+    .task-details { flex-grow: 1; margin: 0 1rem; } /* Allow description to take space */
+    .no-tasks-alert { font-style: italic; color: #6c757d; }
+
+    .back-button { margin-bottom: 1rem; }
+
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+
+    <a href="{{ url_for('planned_maintenance.maintenance_plan_list_view') }}" class="btn btn-sm btn-outline-secondary back-button">
+        <i class="bi bi-arrow-left"></i> Back to Plan List
+    </a>
+
+    <div class="detail-header d-flex justify-content-between align-items-center">
+        <div>
+            <h2>{{ month_name }}</h2>
+            <small class="text-muted">{{ generation_info }}</small>
+        </div>
+        <div>
+            {% if WEASYPRINT_AVAILABLE %}
+            <a href="{{ url_for('planned_maintenance.maintenance_plan_pdf', year=current_year, month=current_month) }}" class="btn btn-sm btn-danger" target="_blank" title="Download PDF (Calendar Layout)">
+                <i class="bi bi-file-earmark-pdf-fill"></i> PDF (Calendar)
+            </a>
+            {% else %}
+            <button class="btn btn-sm btn-secondary" disabled title="PDF Library (WeasyPrint) not installed">
+                <i class="bi bi-file-earmark-pdf-fill"></i> PDF Disabled
+            </button>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if comparison_data %}
+        {% for eq_id, data in comparison_data.items() %}
+        {% set eq = data.equipment %}
+        <div class="equipment-section">
+            <h3 class="equipment-header">
+                {{ eq.code if eq else 'Unknown' }} - {{ eq.name if eq else 'Equipment' }}
+                {% if eq %}<span class="badge bg-secondary ms-2">{{ eq.type }}</span>{% endif %}
+            </h3>
+
+            <div class="row">
+                {# --- Planned Tasks Column --- #}
+                <div class="col-md-6">
+                    <h5><i class="bi bi-calendar-check text-primary me-2"></i>Planned Tasks</h5>
+                    {% if data.planned %}
+                    <ul class="task-list">
+                        {% for entry in data.planned | sort(attribute='planned_date') %}
+                        <li class="planned-task {% if entry.is_estimate %}estimated{% endif %}">
+                            <span class="task-date">{{ entry.planned_date.strftime('%Y-%m-%d') }}</span>
+                            <span class="task-details">
+                                {{ entry.task_description }}
+                                {% if entry.is_estimate %}<span class="badge bg-warning text-dark ms-1">Est.</span>{% endif %}
+                                <small class="text-muted d-block">({{ entry.interval_type }})</small> {# Show interval type #}
+                            </span>
+                            {# Optional: Link to task definition? #}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="no-tasks-alert">No tasks planned for this equipment this month.</p>
+                    {% endif %}
+                </div>
+
+                {# --- Completed Job Cards Column --- #}
+                <div class="col-md-6">
+                    <h5><i class="bi bi-check-circle-fill text-success me-2"></i>Completed Jobs</h5>
+                     {% if data.completed %}
+                    <ul class="task-list">
+                        {% for jc in data.completed | sort(attribute='end_datetime') %}
+                        <li class="completed-job">
+                            <span class="job-date">{{ jc.end_datetime.strftime('%Y-%m-%d %H:%M') if jc.end_datetime else 'N/A' }}</span>
+                            <span class="task-details">
+                                <a href="{{ url_for('planned_maintenance.job_card_detail', id=jc.id) }}" title="View Job Card Details">{{ jc.job_number }}</a>: {{ jc.description }}
+                                <small class="text-muted d-block">Technician: {{ jc.technician or 'N/A' }}</small>
+                            </span>
+                            <span class="badge bg-success">Done</span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="no-tasks-alert">No job cards completed for this equipment this month.</p>
+                    {% endif %}
+                </div>
+            </div> {# End row #}
+        </div> {# End equipment-section #}
+        {% endfor %} {# End comparison_data loop #}
+
+    {% elif error %}
+         <div class="alert alert-danger">
+            <strong>Error:</strong> {{ error }}
+        </div>
+    {% else %}
+         <div class="alert alert-info">
+            No planned tasks or completed job cards found for {{ month_name }}. Check if the plan was generated or if jobs were completed in this period.
+        </div>
+    {% endif %} {# End if comparison_data #}
+
+</div> {# End container #}
+{% endblock %}
