@@ -3,7 +3,7 @@ import logging
 from flask import render_template, request, redirect, url_for, flash, make_response
 from urllib.parse import urlencode
 # Corrected datetime imports
-from datetime import datetime, timedelta, timezone, date
+from datetime import datetime, timedelta, timezone, date, time
 from dateutil.parser import parse as parse_datetime
 from dateutil.relativedelta import relativedelta
 from calendar import monthrange
@@ -512,7 +512,6 @@ def maintenance_plan_view():
 # ==============================================================================
 # === Dashboard Route ===
 # ==============================================================================
-
 @bp.route('/')
 def dashboard():
     logging.debug("--- Entering dashboard route ---")
@@ -521,8 +520,12 @@ def dashboard():
         equipment_list = Equipment.query.filter(
             Equipment.status != 'Sold' # Exclude equipment with status 'Sold'
         ).order_by(Equipment.type, Equipment.name).all()
-        today_str = datetime.utcnow().strftime('%Y-%m-%d') # Naive UTC date string
 
+        # Get today's date object and string representation
+        today_date_obj = date.today() # Use date.today() for date object
+        today_str = today_date_obj.strftime('%Y-%m-%d') # String for comparisons if needed
+
+        logging.debug("Fetching latest usage/checklist for equipment...")
         for eq in equipment_list:
             # Get latest usage and checklist for each equipment
             latest_usage = UsageLog.query.filter_by(equipment_id=eq.id).order_by(desc(UsageLog.log_date)).first()
@@ -530,72 +533,119 @@ def dashboard():
             # Store directly on the object for easy access in the template
             eq.latest_usage = latest_usage
             eq.latest_checklist = latest_checklist
-            # Optionally pre-calculate checked_today flag here if preferred
+            # Pre-calculate checked_today flag
             last_check_date_obj = eq.latest_checklist.check_date if eq.latest_checklist else None
-            eq.checked_today = last_check_date_obj and last_check_date_obj.strftime('%Y-%m-%d') == today_str
+            # Ensure comparison is date-only if check_date is datetime
+            last_check_date_str = last_check_date_obj.strftime('%Y-%m-%d') if last_check_date_obj else None
+            eq.checked_today = last_check_date_str == today_str
 
         # 2. Fetch Open Job Cards
+        logging.debug("Fetching open job cards...")
         open_job_cards = JobCard.query.filter(
             JobCard.status != 'Done'
+        ).options(
+            db.joinedload(JobCard.equipment_ref) # Eager load equipment details
         ).order_by(
             JobCard.due_date.asc().nullslast(), # Sort by due date (earliest first, None last)
             JobCard.id.desc() # Secondary sort by ID
-        ).limit(10).all() # Limit for dashboard view
+        ).limit(20).all() # Limit for dashboard view, adjust as needed
+
+        # --- Generate WhatsApp URLs for Job Cards ---
+        logging.debug(f"Generating WhatsApp URLs for {len(open_job_cards)} open job cards...")
+        for jc in open_job_cards:
+            try:
+                # Format the message details (handle None values)
+                if jc.equipment_ref:
+                    equipment_name = f"{jc.equipment_ref.code} - {jc.equipment_ref.name}"
+                else:
+                     equipment_name = "Unknown Equipment" # Fallback if relation fails
+                due_date_str = jc.due_date.strftime('%Y-%m-%d') if jc.due_date else 'Not Set'
+                technician_str = jc.technician or 'Unassigned'
+
+                # Construct the message string (using markdown for WhatsApp)
+                whatsapp_msg = (
+                    f"Job Card Details:\n"
+                    f"*Number:* {jc.job_number}\n"
+                    f"*Equipment:* {equipment_name}\n"
+                    f"*Task:* {jc.description}\n"
+                    f"*Status:* {jc.status}\n"
+                    f"*Assigned:* {technician_str}\n"
+                    f"*Due:* {due_date_str}"
+                    # Add other details if desired
+                )
+                encoded_msg = urlencode({'text': whatsapp_msg})
+                jc.whatsapp_share_url = f"https://wa.me/?{encoded_msg}" # Assign URL to temporary attribute
+                logging.debug(f"  Generated URL for JC {jc.job_number}")
+            except Exception as url_gen_err:
+                logging.error(f"Error generating WhatsApp URL for JC {jc.id}: {url_gen_err}", exc_info=True)
+                jc.whatsapp_share_url = None # Set to None on error
+
 
         # 3. Process Maintenance Tasks
+        logging.debug("Processing maintenance tasks for status...")
         current_time = datetime.utcnow() # Use consistent naive UTC time
         logging.debug(f"Dashboard processing tasks using current_time (naive UTC): {current_time}")
 
-        all_tasks = MaintenanceTask.query.join(Equipment).order_by(Equipment.name, MaintenanceTask.id).all()
-        tasks_with_status_filtered = [] # List to hold only tasks relevant for dashboard
+        all_tasks = MaintenanceTask.query.options(
+            db.joinedload(MaintenanceTask.equipment_ref) # Eager load equipment
+        ).order_by(
+             MaintenanceTask.equipment_id, # Ensure consistent ordering
+             MaintenanceTask.id
+        ).all()
+
+        tasks_with_status_filtered = [] # List to hold only tasks relevant for dashboard (Overdue, Due Soon, Warning)
 
         logging.debug("Calculating task statuses for dashboard...")
         for task in all_tasks:
+            if not task.equipment_ref or task.equipment_ref.status == 'Sold':
+                logging.debug(f"Skipping task {task.id} for sold equipment {getattr(task.equipment_ref, 'code', 'N/A')}")
+                continue # Skip tasks for sold equipment
+
             # Calculate detailed status using the helper function
             status, due_info, due_date, last_performed_info, next_due_info, estimated_days_info = \
-                calculate_task_due_status(task, current_time) # Ensure this function uses naive UTC
+                calculate_task_due_status(task, current_time) # Assumes this helper exists and works
 
-            # Assign calculated attributes to the task object
+            # Assign calculated attributes to the task object for template use
             task.due_status = status
             task.due_info = due_info
-            task.due_date = due_date # Note: Primarily for days-based tasks
+            task.due_date = due_date # This is the datetime object or None
             task.last_performed_info = last_performed_info
             task.next_due_info = next_due_info
             task.estimated_days_info = estimated_days_info
 
-            # --- Filter tasks for the dashboard view ---
-            # Show Overdue, Due Soon, or tasks with specific warnings
+            # Filter tasks for the dashboard view
             include_task = False
-            # Check status string variations
             if isinstance(status, str):
+                # Check for keywords indicating urgency or warning
                 if "Overdue" in status or "Due Soon" in status or "Warning" in status:
                    include_task = True
-            elif status in ["Overdue", "Due Soon"]: # Direct comparison if status is simple
-                include_task = True
+            # Add elif for non-string status types if calculate_task_due_status can return them
 
             if include_task:
                 tasks_with_status_filtered.append(task)
-        logging.debug(f"Finished calculating task statuses. {len(tasks_with_status_filtered)} tasks included for dashboard.")
 
-        # --- Sort the filtered tasks in Python ---
+        logging.debug(f"Finished calculating task statuses. {len(tasks_with_status_filtered)} tasks included for dashboard display.")
+
+        # Sort the filtered tasks based on severity (Overdue > Due Soon > Warning)
         sort_order_map = {
-            'Overdue': 1,
-            'Due Soon': 2,
-            'Warning': 3,
-            'OK': 4, # Should generally not be in filtered list, but include for robustness
-            'Error': 5,
-            'Never Performed': 6, # Might appear if conditions met
-            'Unknown': 7
+            'Overdue': 1, 'Due Soon': 2, 'Warning': 3,
+            # Add others if they can appear in filtered list and need specific order
+            'Error': 4, 'Unknown': 99
         }
+        default_sort_prio = 100
 
         def get_sort_key(task_item):
-            # Gracefully handle potential None or non-string status
             status_str = getattr(task_item, 'due_status', 'Unknown')
-            if not isinstance(status_str, str):
-                status_str = 'Unknown'
-            # Use the first word (e.g., "Overdue" from "Overdue (First)") for sorting key
-            first_word = status_str.split(' ')[0]
-            return sort_order_map.get(first_word, 99) # Default to 99 if word not in map
+            if not isinstance(status_str, str): status_str = 'Unknown'
+            # Extract the primary status keyword for sorting
+            prio = default_sort_prio
+            for key, sort_prio in sort_order_map.items():
+                if key in status_str: # Check if keyword is present
+                    prio = sort_prio
+                    break # Use first match (assuming Overdue/Due Soon/Warning are distinct enough)
+            # Optional secondary sort key (e.g., by due date if available)
+            secondary_key = task_item.due_date if task_item.due_date else datetime.max.replace(tzinfo=None) # Ensure comparable type
+            return (prio, secondary_key)
 
         try:
             tasks_with_status_filtered.sort(key=get_sort_key)
@@ -605,85 +655,73 @@ def dashboard():
             # Proceed with unsorted list in case of error
 
         # 4. Prepare Recent Activities
-        recent_activities = []
-        limit_count = 10 # How many recent items to fetch/show
-
-        # Fetch recent items from different models
-        latest_checklists = Checklist.query.order_by(Checklist.check_date.desc()).limit(limit_count).all()
-        recent_usage_logs = UsageLog.query.order_by(UsageLog.log_date.desc()).limit(limit_count).all()
-        # Fetch recent job cards (both created and completed might be relevant)
-        recent_job_cards_created = JobCard.query.order_by(JobCard.start_datetime.desc().nullslast(), JobCard.id.desc()).limit(limit_count).all()
-        recent_job_cards_completed = JobCard.query.filter(JobCard.status == 'Done').order_by(JobCard.end_datetime.desc().nullslast(), JobCard.id.desc()).limit(limit_count).all()
-
         logging.debug("Aggregating recent activities...")
-        # Combine and format activities, ensuring naive UTC timestamps
-        activity_map = {} # Use a dictionary to potentially avoid duplicates if needed, keyed by type+id
+        recent_activities = []
+        limit_count = 15 # How many recent items to fetch/show
 
-        for cl in latest_checklists:
-            ts = cl.check_date
-            if ts:
-                 # Ensure naive UTC
-                 if ts.tzinfo is not None: ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
-                 key = f"checklist-{cl.id}"
-                 if key not in activity_map:
-                    activity_map[key] = {'type': 'checklist', 'timestamp': ts, 'description': f"Checklist logged for {cl.equipment_ref.code}: {cl.status}", 'details': cl}
+        # Fetch recent items (adjust models and fields as needed)
+        try: # Wrap aggregation in try/except
+            latest_checklists = Checklist.query.options(db.joinedload(Checklist.equipment_ref)).order_by(Checklist.check_date.desc()).limit(limit_count).all()
+            recent_usage_logs = UsageLog.query.options(db.joinedload(UsageLog.equipment_ref)).order_by(UsageLog.log_date.desc()).limit(limit_count).all()
+            # Fetch recent job cards - use creation time (start_datetime or ID) and completion time (end_datetime)
+            recent_job_cards = JobCard.query.options(db.joinedload(JobCard.equipment_ref)).order_by(JobCard.id.desc()).limit(limit_count * 2).all() # Fetch more initially
 
-        for ul in recent_usage_logs:
-            ts = ul.log_date
-            if ts:
-                 if ts.tzinfo is not None: ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
-                 key = f"usage-{ul.id}"
-                 if key not in activity_map:
-                    activity_map[key] = {'type': 'usage', 'timestamp': ts, 'description': f"Usage logged for {ul.equipment_ref.code}: {ul.usage_value}", 'details': ul}
+            activity_list = []
 
-        for jc in recent_job_cards_created:
-             # Use start_datetime as the primary timestamp for creation
-             create_time = jc.start_datetime
-             if create_time:
-                 if create_time.tzinfo is not None: create_time = create_time.astimezone(timezone.utc).replace(tzinfo=None)
-                 key = f"jc_created-{jc.id}"
-                 if key not in activity_map:
-                     activity_map[key] = {'type': 'job_card_created', 'timestamp': create_time, 'description': f"Job Card {jc.job_number} created for {jc.equipment_ref.code}", 'details': jc}
-             # else: Add fallback if start_datetime might be missing, using ID or another field?
+            for cl in latest_checklists:
+                ts = cl.check_date
+                if ts:
+                    if ts.tzinfo is not None: ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
+                    activity_list.append({
+                        'type': 'checklist', 'timestamp': ts,
+                        'description': f"Checklist for {cl.equipment_ref.code}: {cl.status}",
+                        'details': cl
+                    })
 
-        for jc in recent_job_cards_completed:
-             completion_time = jc.end_datetime
-             if completion_time:
-                 if completion_time.tzinfo is not None: completion_time = completion_time.astimezone(timezone.utc).replace(tzinfo=None)
-                 key = f"jc_completed-{jc.id}"
-                 # Check if creation event is already there, maybe update description or add separate event
-                 if key not in activity_map: # Add completion event if not present
-                     activity_map[key] = {'type': 'job_card_completed', 'timestamp': completion_time, 'description': f"Job Card {jc.job_number} completed for {jc.equipment_ref.code}", 'details': jc}
-                 # Optional: If creation event exists, maybe update its description? Or keep separate events.
+            for ul in recent_usage_logs:
+                ts = ul.log_date
+                if ts:
+                    if ts.tzinfo is not None: ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
+                    activity_list.append({
+                        'type': 'usage', 'timestamp': ts,
+                        'description': f"Usage for {ul.equipment_ref.code}: {ul.usage_value}",
+                        'details': ul
+                    })
 
-        # Convert map values back to a list
-        recent_activities = list(activity_map.values())
+            for jc in recent_job_cards:
+                # Creation Activity (Use start_datetime if available, else maybe creation from ID?)
+                create_ts = jc.start_datetime # This might be set later, consider ID or another field?
+                if create_ts: # Or always add based on ID?
+                     if create_ts.tzinfo is not None: create_ts = create_ts.astimezone(timezone.utc).replace(tzinfo=None)
+                     activity_list.append({
+                         'type': 'job_card_created', 'timestamp': create_ts,
+                         'description': f"Job Card {jc.job_number} created for {jc.equipment_ref.code}",
+                         'details': jc
+                     })
 
-        # Sort the combined list by timestamp (descending)
-        try:
-            logging.debug("Attempting to sort combined recent_activities...")
-            # Filter out any items that might have ended up without a timestamp
-            valid_activities = [act for act in recent_activities if act.get('timestamp') is not None]
+                # Completion Activity
+                if jc.status == 'Done' and jc.end_datetime:
+                    complete_ts = jc.end_datetime
+                    if complete_ts.tzinfo is not None: complete_ts = complete_ts.astimezone(timezone.utc).replace(tzinfo=None)
+                    activity_list.append({
+                         'type': 'job_card_completed', 'timestamp': complete_ts,
+                         'description': f"Job Card {jc.job_number} completed for {jc.equipment_ref.code}",
+                         'details': jc
+                     })
 
-            if len(valid_activities) != len(recent_activities):
-                logging.warning("Some aggregated activities were missing timestamps and excluded from sorting.")
+            # Sort the combined list by timestamp (descending)
+            valid_activities = [act for act in activity_list if act.get('timestamp') is not None]
+            if len(valid_activities) != len(activity_list):
+                logging.warning("Some aggregated activities were missing timestamps.")
 
-            if valid_activities:
-                valid_activities.sort(key=lambda x: x['timestamp'], reverse=True)
-                recent_activities_sorted = valid_activities[:limit_count] # Limit the final list
-                logging.debug(f"Sorting recent activities successful. Showing {len(recent_activities_sorted)} items.")
-            else:
-                 recent_activities_sorted = []
-                 logging.debug("No valid activities with timestamps found for sorting.")
+            valid_activities.sort(key=lambda x: x['timestamp'], reverse=True)
+            recent_activities = valid_activities[:limit_count] # Limit the final list
+            logging.debug(f"Sorting recent activities successful. Showing {len(recent_activities)} items.")
 
-        except TypeError as sort_error:
-            logging.error(f"TypeError during sorting recent_activities: {sort_error}", exc_info=True)
-            recent_activities_sorted = [] # Clear list on error
-            flash("Error sorting recent activity data due to inconsistent timezones.", "warning")
-        except Exception as general_sort_error:
-            logging.error(f"Unexpected error during sorting recent_activities: {general_sort_error}", exc_info=True)
-            recent_activities_sorted = [] # Clear list on error
-            flash("Unexpected error sorting recent activity data.", "warning")
+        except Exception as activity_err:
+             logging.error(f"Error aggregating recent activities: {activity_err}", exc_info=True)
+             flash("Could not load recent activity.", "warning")
+             recent_activities = [] # Ensure empty list on error
 
 
         # 5. Render Template
@@ -691,23 +729,19 @@ def dashboard():
         return render_template(
             'pm_dashboard.html',
             title='PM Dashboard',
-            equipment=equipment_list, # Pass equipment list for status table and modals
-            job_cards=open_job_cards, # Pass open job cards
-            tasks=tasks_with_status_filtered, # Pass the pre-sorted list of relevant tasks
-            recent_activities=recent_activities_sorted, # Pass the sorted recent activities
-            today=today_str # Pass today's date string
-            # Optional: Pass csrf_token() if forms on dashboard need it (modals already have it)
+            equipment=equipment_list,           # For status table and modals
+            job_cards=open_job_cards,           # For open job cards table (with whatsapp_share_url)
+            tasks=tasks_with_status_filtered,   # For upcoming tasks table (with status/due info)
+            recent_activities=recent_activities, # For activity feed
+            today=today_date_obj                # Pass the actual date object for template logic
         )
 
     # --- Global Error Handling for the Route ---
     except Exception as e:
         # Log the full traceback for ANY exception in the dashboard route
         logging.error(f"--- Unhandled exception in dashboard route: {e} ---", exc_info=True)
-        # Optionally use traceback.format_exc() for detailed logging
-        # logging.error(traceback.format_exc())
-        flash(f"An critical error occurred loading the dashboard: {e}. Please contact support.", "danger")
+        flash(f"An critical error occurred loading the dashboard: {e}. Please check logs and contact support.", "danger")
         # Return the template in a safe 'error' state
-        # Ensure the error state template doesn't rely on data that might be missing
         return render_template('pm_dashboard.html',
                                title='PM Dashboard - Error',
                                error=True, # Flag for the template to show an error message
@@ -715,7 +749,7 @@ def dashboard():
                                job_cards=[],
                                tasks=[],
                                recent_activities=[],
-                               today=datetime.utcnow().strftime('%Y-%m-%d')) # Provide default today string
+                               today=date.today()) # Provide default date object on error
 
 @bp.route('/equipment')
 def equipment_list():
@@ -916,7 +950,6 @@ def edit_equipment(id):
                            title=f'Edit {equipment_to_edit.code}',
                            equipment=equipment_to_edit, # Pass the DB object
                            equipment_statuses=EQUIPMENT_STATUSES)
-
 
 @bp.route('/job_card/complete/<int:id>', methods=['GET', 'POST'])
 def complete_job_card(id):
@@ -1203,64 +1236,95 @@ def new_checklist():
     return redirect(url_for('planned_maintenance.dashboard'))
 
 def calculate_task_due_status(task, current_time): # Accept current_time (naive UTC)
-    # ... (initial setup: status, due_info, etc. remains the same) ...
     logging.debug(f"    Calculating status for Task {task.id} ({task.description}) for Eq {task.equipment_id}. current_time = {current_time}")
+    # Initialize return values with defaults
     status = "Unknown"
     due_info = "N/A"
-    due_date = None # Primarily for 'days' type
+    due_date = None # Initialize to None. Will be set to a datetime object if calculable.
     last_performed_info = "Never"
-    next_due_info = "N/A" # Will store 'Next Due at X hours/km'
-    estimated_days_info = "N/A" # Will store '~Y days'
+    next_due_info = "N/A" # Will store 'Next Due at X hours/km' or 'Due on YYYY-MM-DD'
+    estimated_days_info = "N/A" # Will store '~Y days' or date info for 'days' tasks
     numeric_estimated_days = None # Store the raw number for comparison
 
-    # --- Timezone handling (remains the same) ---
+    # --- Timezone handling ---
+    # Ensure current_time is naive UTC
     if current_time.tzinfo is not None:
         current_time = current_time.astimezone(timezone.utc).replace(tzinfo=None)
+
+    # Ensure last_performed_dt is naive UTC or None
     last_performed_dt = task.last_performed
     if last_performed_dt and last_performed_dt.tzinfo is not None:
         last_performed_dt = last_performed_dt.astimezone(timezone.utc).replace(tzinfo=None)
+    # Update last_performed_info based on processed last_performed_dt
+    last_performed_info = last_performed_dt.strftime('%Y-%m-%d') if last_performed_dt else "Never"
 
 
     # ================== HOURS / KM LOGIC ==================
     if task.interval_type == 'hours' or task.interval_type == 'km':
-        # ... (Steps 1-3: get latest log, check if performed, get last_performed_usage - remains the same) ...
+        # --- Initialize variables specific to this block ---
         interval_unit = task.interval_type
+        current_usage = None
+        current_usage_date = None
+        hours_until_next = None
+        # --- End Initialization ---
+
+        # 1. Get latest usage log
         latest_log = UsageLog.query.filter_by(equipment_id=task.equipment_id).order_by(desc(UsageLog.log_date)).first()
         if not latest_log:
             status = f"Unknown (No Usage Data)"
-            return status, due_info, due_date, last_performed_info, next_due_info, estimated_days_info
+            # Return default values, ensure due_date is None
+            return status, due_info, None, last_performed_info, next_due_info, estimated_days_info
+
+        # We know latest_log exists
         current_usage = latest_log.usage_value
         current_usage_date = latest_log.log_date
         if current_usage_date and current_usage_date.tzinfo is not None:
              current_usage_date = current_usage_date.astimezone(timezone.utc).replace(tzinfo=None)
-        next_due_info = f"Current: {current_usage:.1f} {interval_unit}"
 
+        # Temp storage for current state before calculating next due
+        current_state_info = f"Current: {current_usage:.1f} {interval_unit}"
+
+        # 2. Check if task was ever performed
         if not last_performed_dt: # Never performed logic
             status = "Never Performed"
             next_due_info = f"Due at {task.interval_value} {interval_unit} (First)"
-            hours_until_due = task.interval_value - current_usage
-            if hours_until_due <= 0: status = "Overdue (First)"; due_info = f"Over by {abs(hours_until_due):.1f} {interval_unit}"
-            elif hours_until_due <= task.interval_value * 0.1: status = "Due Soon (First)"; due_info = f"{hours_until_due:.1f} {interval_unit} remaining"
-            else: status = "OK (First)"; due_info = f"{hours_until_due:.1f} {interval_unit} remaining"
-            estimated_days_info = "N/A (First)"
-            return status, due_info, due_date, last_performed_info, next_due_info, estimated_days_info
+            # Use local var name to avoid confusion with later hours_until_next
+            local_hours_until_due = task.interval_value - current_usage
+            if local_hours_until_due <= 0:
+                status = "Overdue (First)"
+                due_info = f"Over by {abs(local_hours_until_due):.1f} {interval_unit}"
+            elif local_hours_until_due <= task.interval_value * 0.1: # 10% buffer
+                status = "Due Soon (First)"
+                due_info = f"{local_hours_until_due:.1f} {interval_unit} remaining"
+            else:
+                status = "OK (First)"
+                due_info = f"{local_hours_until_due:.1f} {interval_unit} remaining"
+            estimated_days_info = "N/A (First)" # Cannot estimate days accurately for first run yet
+            # Return, ensuring due_date is None
+            return status, due_info, None, last_performed_info, next_due_info, estimated_days_info
 
+        # We know last_performed_dt exists
+        # 3. Get usage value at the time of the last performance
         last_performed_usage = task.last_performed_usage_value
-        if last_performed_usage is None: # Usage unknown logic
+        if last_performed_usage is None: # Usage unknown at last performance
              status = f"Warning (Usage at Last Done Unknown)"
+             # Update last_performed_info specifically for this case
              last_performed_info = f"{last_performed_dt.strftime('%Y-%m-%d')} (Usage Unknown)"
              next_due_info = "Cannot Calculate"; estimated_days_info = "Cannot Calculate"
-             return status, due_info, due_date, last_performed_info, next_due_info, estimated_days_info
+             # Return, ensuring due_date is None
+             return status, due_info, None, last_performed_info, next_due_info, estimated_days_info
 
+        # We know last_performed_usage exists
+        # Update last_performed_info with known usage
         last_performed_info = f"{last_performed_dt.strftime('%Y-%m-%d')} at {last_performed_usage:.1f} {interval_unit}"
 
-        # 4. Calculate key metrics (remains the same)
+        # 4. Calculate key metrics
         next_due_at_usage = last_performed_usage + task.interval_value
-        hours_until_next = next_due_at_usage - current_usage
-        next_due_info = f"Next due at {next_due_at_usage:.1f} {interval_unit}"
-        due_info = f"{hours_until_next:.1f} {interval_unit} remaining"
+        hours_until_next = next_due_at_usage - current_usage # Assign hours_until_next
+        next_due_info = f"Next due at {next_due_at_usage:.1f} {interval_unit}" # Define next due target
+        due_info = f"{hours_until_next:.1f} {interval_unit} remaining" # Define remaining buffer
 
-        # 5. Determine PRIMARY Status based on hours_until_next (remains the same)
+        # 5. Determine PRIMARY Status based on hours_until_next
         if hours_until_next <= 0:
             status = "Overdue"
             due_info = f"Overdue by {abs(hours_until_next):.1f} {interval_unit}"
@@ -1269,48 +1333,80 @@ def calculate_task_due_status(task, current_time): # Accept current_time (naive 
         else:
             status = "OK"
 
-        # 6. Estimate days until due (Calculate numeric_estimated_days)
+        # 6. Estimate days until due
+        # Find the log entry *before* the latest one to calculate rate
         previous_log = UsageLog.query.filter(
             UsageLog.equipment_id == task.equipment_id,
-            UsageLog.log_date < current_usage_date
+            UsageLog.log_date < current_usage_date # Find one strictly before latest
         ).order_by(desc(UsageLog.log_date)).first()
 
         if previous_log and current_usage_date > previous_log.log_date:
              prev_log_date = previous_log.log_date
              if prev_log_date and prev_log_date.tzinfo is not None:
                  prev_log_date = prev_log_date.astimezone(timezone.utc).replace(tzinfo=None)
+
              usage_diff = current_usage - previous_log.usage_value
              time_diff = current_usage_date - prev_log_date
              time_diff_days = time_diff.total_seconds() / (24 * 3600)
 
-             if time_diff_days > 0 and usage_diff >= 0:
+             if time_diff_days > 0 and usage_diff >= 0: # Avoid division by zero and negative time/usage diffs
                  avg_daily_usage = usage_diff / time_diff_days
                  logging.debug(f"    Task {task.id}: Avg daily usage = {avg_daily_usage:.2f} {interval_unit}/day")
-                 if avg_daily_usage > 0.01: # Check for minimal usage rate
-                     # --- Calculate numeric value ---
-                     numeric_estimated_days = hours_until_next / avg_daily_usage
-                     # --- Format the string ---
-                     if status == "Overdue": estimated_days_info = f"~{abs(numeric_estimated_days):.1f} days Overdue"
-                     else: estimated_days_info = f"~{numeric_estimated_days:.1f} days"
-                 else: estimated_days_info = "N/A (Low Usage Rate)"
-             else: estimated_days_info = "N/A (Rate Calc Error)"
-        else: estimated_days_info = "N/A (Insufficient Data)"
 
-        # --- **** NEW LOGIC **** ---
+                 if avg_daily_usage > 0.01: # Check for minimal usage rate to avoid huge day estimates
+                     # --- Calculate numeric estimated days ---
+                     numeric_estimated_days = hours_until_next / avg_daily_usage
+
+                     # --- Calculate estimated due_date object ---
+                     try:
+                         # Calculate the estimated date based on naive current_time
+                         # Combine date with time.min for a full datetime object
+                         estimated_date_only = (current_time + timedelta(days=numeric_estimated_days)).date()
+                         due_date = datetime.combine(estimated_date_only, time.min) # Assign to due_date
+                         logging.debug(f"    Task {task.id}: Estimated due_date object set to: {due_date}")
+                     except OverflowError:
+                         logging.warning(f"    Task {task.id}: OverflowError calculating estimated due date (numeric_estimated_days={numeric_estimated_days}). due_date remains None.")
+                         due_date = None # Ensure it's None on overflow
+                     except Exception as date_calc_err:
+                         logging.error(f"    Task {task.id}: Error calculating estimated due_date object: {date_calc_err}", exc_info=True)
+                         due_date = None # Ensure it's None on other calculation errors
+
+                     # --- Format the estimated_days_info string ---
+                     if status == "Overdue": # Although estimated_days might be positive if usage decreased
+                         estimated_days_info = f"~{abs(numeric_estimated_days):.1f} days Overdue (est.)"
+                     elif numeric_estimated_days >= 0 :
+                         estimated_days_info = f"~{numeric_estimated_days:.1f} days (est.)"
+                     else: # Should not happen if status isn't Overdue, but handle anyway
+                         estimated_days_info = f"~{abs(numeric_estimated_days):.1f} days ago (est.)"
+
+                 else:
+                     estimated_days_info = "N/A (Low Usage Rate)"
+                     due_date = None # Cannot estimate date if rate is too low
+             else:
+                 estimated_days_info = "N/A (Rate Calc Error)" # e.g. time diff is zero or negative
+                 due_date = None
+        else:
+            estimated_days_info = "N/A (Insufficient Data)" # Need at least two logs
+            due_date = None
+
         # 7. Refine status based on estimated days, if currently "OK"
         if status == "OK" and numeric_estimated_days is not None and numeric_estimated_days <= DUE_SOON_ESTIMATED_DAYS_THRESHOLD:
             logging.debug(f"    Task {task.id}: Status was OK, but estimated days ({numeric_estimated_days:.1f}) <= threshold ({DUE_SOON_ESTIMATED_DAYS_THRESHOLD}). Changing status to Due Soon.")
             status = "Due Soon"
-        # --- **** END NEW LOGIC **** ---
 
+        # Return potentially calculated due_date object
         return status, due_info, due_date, last_performed_info, next_due_info, estimated_days_info
 
-    # ================== DAYS LOGIC (remains the same) ==================
+    # ================== DAYS LOGIC ==================
     elif task.interval_type == 'days':
         if last_performed_dt:
-            due_date = last_performed_dt + timedelta(days=task.interval_value)
+            # Calculate the actual due date+time
+            due_datetime = last_performed_dt + timedelta(days=task.interval_value)
+            # Assign the calculated datetime object to due_date
+            due_date = due_datetime
             logging.debug(f"    Task {task.id} ('days'): Calculated due_date = {due_date} (naive)")
             try:
+                # Use due_date (the datetime obj) for calculations now
                 time_difference = due_date - current_time
                 days_until_due = time_difference.days
                 total_seconds_until_due = time_difference.total_seconds()
@@ -1319,7 +1415,7 @@ def calculate_task_due_status(task, current_time): # Accept current_time (naive 
                 if total_seconds_until_due < 0:
                     status = "Overdue"
                     due_info = f"Due on {due_date.strftime('%Y-%m-%d')} ({abs(days_until_due)} days ago)"
-                # Use the SAME threshold constant for consistency in "Due Soon" definition
+                # Use the SAME threshold constant for consistency
                 elif days_until_due <= DUE_SOON_ESTIMATED_DAYS_THRESHOLD:
                     status = "Due Soon"
                     due_info = f"Due on {due_date.strftime('%Y-%m-%d')} (in {days_until_due} days)"
@@ -1327,25 +1423,34 @@ def calculate_task_due_status(task, current_time): # Accept current_time (naive 
                     status = "OK"
                     due_info = f"Due on {due_date.strftime('%Y-%m-%d')} (in {days_until_due} days)"
 
-                last_performed_info = f"{last_performed_dt.strftime('%Y-%m-%d')}"
+                # Update last_performed_info (already set earlier based on processed dt)
+                # Use due_date (the datetime obj) for formatting next due info
                 next_due_info = f"Due on {due_date.strftime('%Y-%m-%d')}"
-                estimated_days_info = due_info # For days tasks, due_info is the estimate
+                estimated_days_info = due_info # For days tasks, due_info *is* the estimate
 
             except TypeError as calc_err:
                  logging.error(f"    Task {task.id}: TYPE ERROR during 'days_until_due' calculation!", exc_info=True)
                  status, due_info, due_date, last_performed_info, next_due_info = "Error Calculating Due", "Calculation Error", None, "Error", "Error"
                  estimated_days_info = "Error" # Ensure estimate also shows error
         else:
-            status, last_performed_info, next_due_info, due_info = "Never Performed", "Never", "N/A (First)", "N/A (First)"
+            # Never performed logic (due_date remains None)
+            status = "Never Performed"
+            # last_performed_info is already "Never"
+            next_due_info = "N/A (First)"
+            due_info = "N/A (First)"
             estimated_days_info = "N/A (First)" # No estimate if never performed
 
+        # Return due_date (which is either calculated datetime or None)
         return status, due_info, due_date, last_performed_info, next_due_info, estimated_days_info
     # ===================================================================
+
+    # ================== UNKNOWN TYPE ==================
     else: # Unknown interval type
         status = "Unknown Interval Type"
         due_info = task.interval_type
-        last_performed_info = last_performed_dt.strftime('%Y-%m-%d') if last_performed_dt else "Never"
-        return status, due_info, due_date, last_performed_info, next_due_info, estimated_days_info
+        # last_performed_info is already set based on processed dt
+        # Return, due_date remains None
+        return status, due_info, None, last_performed_info, next_due_info, estimated_days_info
 
 @bp.route('/tasks', methods=['GET'])
 def tasks_list():
@@ -1625,28 +1730,59 @@ def new_job_card_from_task(task_id):
     try:
         task = MaintenanceTask.query.get_or_404(task_id)
         technician = request.form.get('technician')
-        year = datetime.now().year
-        count = JobCard.query.count() + 1
-        job_number = f"JC-{year}-{count:04d}"
-        current_time_for_calc = datetime.utcnow()
-        status, due_info, due_date, last_performed_info, next_due_info, estimated_days_info = \
-            calculate_task_due_status(task, current_time_for_calc)
-        logging.debug(f"New JC from task {task.id} calculated due_date: {due_date} ({due_date.tzinfo if due_date else 'None'})")
-        
+        due_date_str = request.form.get('due_date')
+        logging.debug(f"Received due_date string from form for task {task_id}: '{due_date_str}'")
+
+        # --- <<< CHECK FOR EXISTING OPEN JOB CARD >>> ---
+        existing_open_jc = JobCard.query.filter(
+            JobCard.equipment_id == task.equipment_id,
+            JobCard.description == task.description, # Match based on task description
+            JobCard.status != 'Done'                 # Check if status is NOT 'Done'
+        ).first() # We only need to know if one exists
+
+        if existing_open_jc:
+            # An open job card for this task already exists
+            flash(f"Cannot create new job card. An open job card (#{existing_open_jc.job_number}) "
+                  f"already exists for task '{task.description}' on equipment {task.equipment_ref.code}.",
+                  "warning") # Use 'warning' or 'info' category
+            return redirect(url_for('planned_maintenance.dashboard'))
+        # --- <<< END CHECK >>> ---
+
+
+        # --- Parse the received due date string ---
+        due_date_dt = None # Initialize to None
+        if due_date_str:
+            try:
+                parsed_date = datetime.strptime(due_date_str, '%Y-%m-%d').date()
+                due_date_dt = datetime.combine(parsed_date, time.min)
+                logging.debug(f"Parsed due_date_str '{due_date_str}' to datetime: {due_date_dt}")
+            except ValueError:
+                flash(f"Invalid due date format '{due_date_str}' received. Job card created without due date.", "warning")
+                # due_date_dt remains None
+
+        # --- Generate Job Number ---
+        job_number = generate_next_job_number() # Assumes this helper function exists
+        logging.debug(f"Generated Job Number: {job_number}")
+
+        # --- Create New Job Card (only if no existing open one was found) ---
         job_card = JobCard(
             job_number=job_number,
             equipment_id=task.equipment_id,
-            description=task.description,
-            technician=technician,
+            description=task.description, # Pre-filled from task
+            technician=technician if technician else None,
             status='To Do',
             oem_required=task.oem_required,
             kit_required=task.kit_required,
-            due_date=due_date  # Set due date from task
+            due_date=due_date_dt
         )
         db.session.add(job_card)
         db.session.commit()
+        logging.info(f"Job Card {job_number} created from task {task_id} with due date {due_date_dt}.")
 
+
+        # --- Format WhatsApp message ---
         equipment_name = task.equipment_ref.name or 'Unknown Equipment'
+        due_date_display_str = due_date_dt.strftime('%Y-%m-%d') if due_date_dt else 'Not Set'
         whatsapp_msg = (
             f"Job Card #{job_number} created from Task:\n"
             f"Equipment: {equipment_name}\n"
@@ -1654,19 +1790,42 @@ def new_job_card_from_task(task_id):
             f"Assigned: {technician or 'Unassigned'}\n"
             f"OEM Required: {'Yes' if task.oem_required else 'No'}\n"
             f"Kit Required: {'Yes' if task.kit_required else 'No'}\n"
-            f"Due Date: {due_date.strftime('%Y-%m-%d') if due_date else 'Not Set'}"
+            f"Due Date: {due_date_display_str}"
         )
-        
+
         flash(f'Job Card {job_number} created from task!', 'success')
         encoded_msg = urlencode({'text': whatsapp_msg})
         whatsapp_url = f"https://wa.me/?{encoded_msg}"
-        return redirect(whatsapp_url)
+        # Decide whether to redirect to WhatsApp or dashboard
+        # return redirect(whatsapp_url)
+        return redirect(url_for('planned_maintenance.dashboard')) # Redirect back to dash usually makes more sense
+
 
     except Exception as e:
         db.session.rollback()
-        logging.error(f"Error creating job card from task {task_id}: {e}", exc_info=True) 
+        logging.error(f"Error creating job card from task {task_id}: {e}", exc_info=True)
         flash(f"Error creating job card from task: {e}", "danger")
         return redirect(url_for('planned_maintenance.dashboard'))
+
+# --- Helper function (add this if it doesn't exist) ---
+def generate_next_job_number():
+    """Generates the next sequential job number (Example Implementation)."""
+    # IMPORTANT: This is a basic example. For production, consider locking or more robust sequence generation.
+    last_jc = JobCard.query.order_by(JobCard.id.desc()).first()
+    prefix = f"JC-{datetime.now(timezone.utc).strftime('%y')}-" # e.g., JC-24-
+    next_num = 1
+    if last_jc and last_jc.job_number.startswith(prefix):
+        try:
+            last_num_part = last_jc.job_number[len(prefix):]
+            next_num = int(last_num_part) + 1
+        except (ValueError, IndexError):
+             logging.warning(f"Could not parse sequence number from last job card '{last_jc.job_number}'. Resetting sequence for prefix {prefix}.")
+             next_num = 1 # Reset if parsing fails
+    elif last_jc:
+         logging.info(f"Last job card '{last_jc.job_number}' has different prefix. Starting new sequence for {prefix}.")
+         next_num = 1
+
+    return f"{prefix}{next_num:04d}" # e.g., JC-24-0001
 
 @bp.route('/checklist_logs', methods=['GET'])
 def checklist_logs():
