@@ -126,3 +126,4 @@ dmypy.json
 *.db # Ignore all SQLite database files
 *.sqlite3
 /instance/app.db # Be specific if needed
+instance/tkr.db
