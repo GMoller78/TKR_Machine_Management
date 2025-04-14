@@ -1,17 +1,15 @@
 # tkr_system/app/__init__.py
 import os
-from flask import Flask
+import calendar
+from flask import Flask, request, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
+from werkzeug.middleware.proxy_fix import ProxyFix
 from config import Config
-import calendar
-from werkzeug.middleware.proxy_fix import ProxyFix # <--- Import ProxyFix
 
 # Initialize extensions
 db = SQLAlchemy()
 migrate = Migrate()
-
-from app.api.routes import api_bp # Import the new API blueprint
 
 def create_app(config_class=Config):
     """Flask application factory."""
@@ -20,23 +18,20 @@ def create_app(config_class=Config):
     # Load configuration from Config object
     app.config.from_object(config_class)
 
-    # --- Apply ProxyFix AFTER app creation and config ---
-    # This helps Flask understand headers like X-Forwarded-For, X-Forwarded-Proto, X-Forwarded-Host, X-Forwarded-Prefix
-    # when running behind a reverse proxy like Nginx.
+    # Apply ProxyFix to handle reverse proxy headers
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
-    # --- End ProxyFix ---
 
     # Ensure the instance folder exists
     try:
-        os.makedirs(app.instance_path)
+        os.makedirs(app.instance_path, exist_ok=True)
     except OSError:
-        pass # Already exists or other error creating it
+        pass  # Already exists or other error creating it
 
     # Initialize Flask extensions with the app instance
     db.init_app(app)
     migrate.init_app(app, db)
 
-   # --- Define and Register Jinja Filter ---
+    # Define and Register Jinja Filter
     @app.template_filter('month_name')
     def format_month_name_filter(month_number):
         """Converts a month number (1-12) to its full name."""
@@ -44,37 +39,71 @@ def create_app(config_class=Config):
             month_num = int(month_number)
             if 1 <= month_num <= 12:
                 return calendar.month_name[month_num]
-            else:
-                return month_number
+            return str(month_number)
         except (ValueError, TypeError):
-            return month_number
+            return str(month_number)
+
+    # Debug route for inspecting request and application state
+    @app.route('/debug')
+    def debug():
+        """Debug route to inspect request headers, URLs, and environment."""
+        try:
+            headers = {k: v for k, v in request.headers.items()}
+            example_url = "N/A"
+            try:
+                example_url = url_for('planned_maintenance.dashboard', _external=False)
+            except Exception as url_err:
+                example_url = f"Error generating URL: {url_err}"
+
+            wsgi_environ = {
+                k: v for k, v in request.environ.items()
+                if k.startswith(('HTTP_', 'PATH_', 'REQUEST_', 'SERVER_', 'SCRIPT_', 'wsgi.'))
+            }
+
+            return f"""
+            <h3>Debug Information</h3>
+            <b>Request Path:</b> {request.path}<br>
+            <b>Request Script Root:</b> {request.script_root}<br>
+            <b>Request URL:</b> {request.url}<br>
+            <b>Request Base URL:</b> {request.base_url}<br>
+            <hr>
+            <b>Generated URL ('planned_maintenance.dashboard'):</b> {example_url}<br>
+            <hr>
+            <b>Headers Seen by Flask:</b><br>
+            <pre>{headers}</pre>
+            <hr>
+            <b>WSGI Environ (relevant parts):</b><br>
+            <pre>{wsgi_environ}</pre>
+            """
+        except Exception as e:
+            return f"Error in debug route: {str(e)}", 500
 
     # Import and register blueprints
     from app.planned_maintenance import bp as pm_bp
     from app.inventory import bp as inv_bp
+    from app.api.routes import api_bp
 
     app.register_blueprint(pm_bp, url_prefix='/planned-maintenance')
     app.register_blueprint(inv_bp, url_prefix='/inventory')
-    app.register_blueprint(api_bp) # Assuming api_bp doesn't need a prefix, adjust if it does
+    app.register_blueprint(api_bp)  # Assuming no prefix for API, adjust if needed
 
-    # Optional: Add a simple root route for testing if the app runs
+    # Simple root route for testing
     @app.route('/hello')
     def hello():
         return "Hello, TKR System!"
 
     return app
 
-# (Keep the rest of the file as is, including the bottom import)
+# Import models after create_app to avoid circular imports
 from app import models
 
-# Helper function (can remain outside create_app)
+# Helper function (outside create_app for potential reuse)
 def format_month_name(month_number):
     """Converts a month number (1-12) to its full name."""
     try:
         month_num = int(month_number)
         if 1 <= month_num <= 12:
             return calendar.month_name[month_num]
-        else:
-            return month_number
+        return str(month_number)
     except (ValueError, TypeError):
-        return month_number
+        return str(month_number)
