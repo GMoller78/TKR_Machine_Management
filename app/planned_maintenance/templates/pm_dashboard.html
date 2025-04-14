@@ -20,139 +20,139 @@
     <!-- Single Column Layout -->
     <div class="row">
         <div class="col-12">
-                    <!-- Maintenance Tasks (Due Soon / Overdue) -->
-                    <div class="card mb-4">
-                        <div class="card-header d-flex justify-content-between align-items-center bg-primary text-white">
-                            <span>Upcoming / Overdue Maintenance Tasks ({{ tasks|length }})</span>
-                            <div>
-                                <a href="{{ url_for('planned_maintenance.maintenance_plan_list_view') }}" class="btn btn-sm btn-warning me-2">
-                                    <i class="bi bi-calendar3 me-1"></i> Maintenance Plan
-                                </a>
-                                <a href="{{ url_for('planned_maintenance.tasks_list') }}" class="btn btn-sm btn-light me-2">View All Tasks</a>
-                                <a href="{{ url_for('planned_maintenance.add_task') }}" class="btn btn-sm btn-light">Add Task</a>
-                            </div>
-                        </div>
-                        <div class="card-body p-0" style="max-height: 500px; overflow-y: auto;"> {# Remove padding for table #}
-                            {% if tasks %}
-                                <div class="table-responsive">
-                                    {# Removed table-sm for slightly more padding, added table-bordered for visual separation #}
-                                    <table class="table table-striped table-hover table-bordered mb-0">
-                                        {# == MODIFIED THEAD == #}
-                                        <thead class="table-light">
-                                            <tr>
-                                                <th style="width: 35%; vertical-align: middle;">Equipment & Task</th>
-                                                <th style="width: 40%; vertical-align: middle;">Scheduling Details</th>
-                                                <th style="width: 10%; vertical-align: middle;">Status</th>
-                                                <th style="width: 15%; vertical-align: middle;">Action</th>
-                                            </tr>
-                                        </thead>
-                                        {# == MODIFIED TBODY == #}
-                                        <tbody>
-                                            {% for task in tasks %}
-                                                {# Determine row background color based on status #}
-                                                {% set row_color_class = '' %}
-                                                {% if 'Overdue' in task.due_status %}
-                                                    {% set row_color_class = 'table-danger-light' %} {# Using a lighter custom class or Bootstrap opacity utility #}
-                                                {% elif 'Due Soon' in task.due_status %}
-                                                    {% set row_color_class = 'table-warning-light' %}
-                                                {% elif 'Warning' in task.due_status %}
-                                                    {% set row_color_class = 'table-info-light' %}
-                                                {% endif %}
-        
-                                                {# Apply vertical-align: top to ensure content aligns nicely #}
-                                                <tr class="{{ row_color_class }}" style="vertical-align: top;">
-                                                    {# Column 1: Equipment & Task Description #}
-                                                    <td style="white-space: normal !important;"> {# Ensure wrapping #}
-                                                        <strong>{{ task.equipment_ref.code }} - {{ task.equipment_ref.name }}</strong><br>
-                                                        <small>{{ task.description }}</small> {# Removed truncate to allow wrapping #}
-                                                    </td>
-        
-                                                    {# Column 2: Scheduling Details #}
-                                                    <td style="white-space: normal !important;">
-                                                        <small>
-                                                            <div><span class="text-muted">Interval:</span> {{ task.interval_value }} {{ task.interval_type | replace('hours', 'hrs') }}</div>
-                                                            <div><span class="text-muted">Last Done:</span> {{ task.last_performed_info | replace('hours', 'hrs') or 'N/A' }}</div>
-                                                            <div><span class="text-muted">Next Due:</span> {{ task.next_due_info | replace('hours', 'hrs') or 'N/A' }}</div>
-                                                            <div><span class="text-muted">Remaining/Info:</span> {{ task.due_info | replace('hours', 'hrs') or 'N/A' }}</div>
-                                                            <div><span class="text-muted">Est. Time:</span> {{ task.estimated_days_info or 'N/A' }}</div>
-                                                         </small>
-                                                    </td>
-        
-                                                    {# Column 3: Status Badge #}
-                                                    <td>
-                                                        <span class="badge
-                                                            {% if 'Overdue' in task.due_status %}bg-danger
-                                                            {% elif 'Due Soon' in task.due_status %}bg-warning text-dark
-                                                            {% elif 'OK' in task.due_status %}bg-success
-                                                            {% elif 'Warning' in task.due_status %}bg-info text-dark
-                                                            {% else %}bg-secondary
-                                                            {% endif %}">
-                                                            {{ task.due_status }}
-                                                        </span>
-                                                    </td>
-        
-                                                    {# Column 4: Action Form #}
-                                                    <td style="white-space: normal !important;"> {# Ensure wrapping in the cell #}
-                                                        <form method="POST" action="{{ url_for('planned_maintenance.new_job_card_from_task', task_id=task.id) }}" class="d-inline mb-1"> {# Added mb-1 for spacing #}
-                                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
-
-                                                            {# == Determine Due Date Value and Display String == #}
-                                                            {% set due_date_value = '' %} {# For hidden input value (YYYY-MM-DD) #}
-                                                            {% set due_date_display = 'N/A' %} {# For display text #}
-
-                                                            {# Check if task is Overdue using the status string #}
-                                                            {% if task.due_status and 'Overdue' in task.due_status %}
-                                                                {% set due_date_value = today.isoformat() %} {# Use today's date object #}
-                                                                {% set due_date_display = today.strftime('%Y-%m-%d') %}
-                                                            {# Check if task has a calculated due_date (which is a datetime object or None) #}
-                                                            {% elif task.due_date and task.due_date is not none %}
-                                                                {# Format the datetime object's date part as YYYY-MM-DD #}
-                                                                {% set due_date_value = task.due_date.strftime('%Y-%m-%d') %}
-                                                                {% set due_date_display = task.due_date.strftime('%Y-%m-%d') %}
-                                                            {# Optional: Handle 'Never Performed'? Maybe don't set a due date? #}
-                                                            {# Default is handled by due_date_value = '' #}
-                                                            {% endif %}
-
-                                                            {# == Hidden input for due_date == #}
-                                                            <input type="hidden" name="due_date" value="{{ due_date_value }}">
-                                                            {# ================================= #}
-
-                                                            <div class="input-group input-group-sm">
-                                                                <input type="text" name="technician" class="form-control form-control-sm" placeholder="Tech" style="max-width: 70px;" title="Assign Technician (Optional)">
-                                                                <button type="submit"
-                                                                        class="btn btn-success btn-sm"
-                                                                        title="Create Job Card"> {# Keep a simple title for hover #}
-                                                                    <i class="bi bi-plus-circle-fill"></i>
-                                                                </button>
-                                                            </div>
-                                                        </form>
-                                                        {# == MODIFIED: Visible description shows due date == #}
-                                                        <div class="mt-1"> {# Add margin-top for spacing #}
-                                                            <small class="text-muted">
-                                                                <i class="bi bi-arrow-return-right me-1"></i>
-                                                                Create JC for: "{{ task.description | truncate(30, True) | escape }}" on {{ task.equipment_ref.code | escape }}
-                                                                {% if due_date_value %} {# Only show if a due date was determined #}
-                                                                    <span class="text-primary">(Due: {{ due_date_display }})</span>
-                                                                {% endif %}
-                                                            </small>
-                                                        </div>
-                                                        {# ============================================ #}
-                                                    </td>
-                                                </tr>
-                                            {% endfor %}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            {% else %}
-                               <div class="card-body text-center"> {# Add padding back if no tasks #}
-                                    <p class="text-muted text-center">No tasks currently overdue or due soon. <a href="{{ url_for('planned_maintenance.tasks_list') }}">View all tasks.</a></p>
-                                </div>
-                            {% endif %}
-                        </div>
-                         <div class="card-footer text-muted">
-                            <small>Shows tasks Overdue, Due Soon, or with Warnings. Log usage for accurate scheduling.</small>
-                        </div>
+            <!-- Maintenance Tasks (Due Soon / Overdue) -->
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center bg-primary text-white">
+                    <span>Upcoming / Overdue Maintenance Tasks ({{ tasks|length }})</span>
+                    <div>
+                        <a href="{{ url_for('planned_maintenance.maintenance_plan_list_view') }}" class="btn btn-sm btn-warning me-2">
+                            <i class="bi bi-calendar3 me-1"></i> Maintenance Plan
+                        </a>
+                        <a href="{{ url_for('planned_maintenance.tasks_list') }}" class="btn btn-sm btn-light me-2">View All Tasks</a>
+                        <a href="{{ url_for('planned_maintenance.add_task') }}" class="btn btn-sm btn-light">Add Task</a>
                     </div>
+                </div>
+                <div class="card-body p-0" style="max-height: 500px; overflow-y: auto;"> {# Remove padding for table #}
+                    {% if tasks %}
+                        <div class="table-responsive">
+                            {# Removed table-sm for slightly more padding, added table-bordered for visual separation #}
+                            <table class="table table-striped table-hover table-bordered mb-0">
+                                {# == MODIFIED THEAD == #}
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 35%; vertical-align: middle;">Equipment & Task</th>
+                                        <th style="width: 40%; vertical-align: middle;">Scheduling Details</th>
+                                        <th style="width: 10%; vertical-align: middle;">Status</th>
+                                        <th style="width: 15%; vertical-align: middle;">Action</th>
+                                    </tr>
+                                </thead>
+                                {# == MODIFIED TBODY == #}
+                                <tbody>
+                                    {% for task in tasks %}
+                                        {# Determine row background color based on status #}
+                                        {% set row_color_class = '' %}
+                                        {% if 'Overdue' in task.due_status %}
+                                            {% set row_color_class = 'table-danger-light' %} {# Using a lighter custom class or Bootstrap opacity utility #}
+                                        {% elif 'Due Soon' in task.due_status %}
+                                            {% set row_color_class = 'table-warning-light' %}
+                                        {% elif 'Warning' in task.due_status %}
+                                            {% set row_color_class = 'table-info-light' %}
+                                        {% endif %}
+
+                                        {# Apply vertical-align: top to ensure content aligns nicely #}
+                                        <tr class="{{ row_color_class }}" style="vertical-align: top;">
+                                            {# Column 1: Equipment & Task Description #}
+                                            <td style="white-space: normal !important;"> {# Ensure wrapping #}
+                                                <strong>{{ task.equipment_ref.code }} - {{ task.equipment_ref.name }}</strong><br>
+                                                <small>{{ task.description }}</small> {# Removed truncate to allow wrapping #}
+                                            </td>
+
+                                            {# Column 2: Scheduling Details #}
+                                            <td style="white-space: normal !important;">
+                                                <small>
+                                                    <div><span class="text-muted">Interval:</span> {{ task.interval_value }} {{ task.interval_type | replace('hours', 'hrs') }}</div>
+                                                    <div><span class="text-muted">Last Done:</span> {{ task.last_performed_info | replace('hours', 'hrs') or 'N/A' }}</div>
+                                                    <div><span class="text-muted">Next Due:</span> {{ task.next_due_info | replace('hours', 'hrs') or 'N/A' }}</div>
+                                                    <div><span class="text-muted">Remaining/Info:</span> {{ task.due_info | replace('hours', 'hrs') or 'N/A' }}</div>
+                                                    <div><span class="text-muted">Est. Time:</span> {{ task.estimated_days_info or 'N/A' }}</div>
+                                                    </small>
+                                            </td>
+
+                                            {# Column 3: Status Badge #}
+                                            <td>
+                                                <span class="badge
+                                                    {% if 'Overdue' in task.due_status %}bg-danger
+                                                    {% elif 'Due Soon' in task.due_status %}bg-warning text-dark
+                                                    {% elif 'OK' in task.due_status %}bg-success
+                                                    {% elif 'Warning' in task.due_status %}bg-info text-dark
+                                                    {% else %}bg-secondary
+                                                    {% endif %}">
+                                                    {{ task.due_status }}
+                                                </span>
+                                            </td>
+
+                                            {# Column 4: Action Form #}
+                                            <td style="white-space: normal !important;"> {# Ensure wrapping in the cell #}
+                                                <form method="POST" action="{{ url_for('planned_maintenance.new_job_card_from_task', task_id=task.id) }}" class="d-inline mb-1"> {# Added mb-1 for spacing #}
+                                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+
+                                                    {# == Determine Due Date Value and Display String == #}
+                                                    {% set due_date_value = '' %} {# For hidden input value (YYYY-MM-DD) #}
+                                                    {% set due_date_display = 'N/A' %} {# For display text #}
+
+                                                    {# Check if task is Overdue using the status string #}
+                                                    {% if task.due_status and 'Overdue' in task.due_status %}
+                                                        {% set due_date_value = today.isoformat() %} {# Use today's date object #}
+                                                        {% set due_date_display = today.strftime('%Y-%m-%d') %}
+                                                    {# Check if task has a calculated due_date (which is a datetime object or None) #}
+                                                    {% elif task.due_date and task.due_date is not none %}
+                                                        {# Format the datetime object's date part as YYYY-MM-DD #}
+                                                        {% set due_date_value = task.due_date.strftime('%Y-%m-%d') %}
+                                                        {% set due_date_display = task.due_date.strftime('%Y-%m-%d') %}
+                                                    {# Optional: Handle 'Never Performed'? Maybe don't set a due date? #}
+                                                    {# Default is handled by due_date_value = '' #}
+                                                    {% endif %}
+
+                                                    {# == Hidden input for due_date == #}
+                                                    <input type="hidden" name="due_date" value="{{ due_date_value }}">
+                                                    {# ================================= #}
+
+                                                    <div class="input-group input-group-sm">
+                                                        <input type="text" name="technician" class="form-control form-control-sm" placeholder="Tech" style="max-width: 70px;" title="Assign Technician (Optional)">
+                                                        <button type="submit"
+                                                                class="btn btn-success btn-sm"
+                                                                title="Create Job Card"> {# Keep a simple title for hover #}
+                                                            <i class="bi bi-plus-circle-fill"></i>
+                                                        </button>
+                                                    </div>
+                                                </form>
+                                                {# == MODIFIED: Visible description shows due date == #}
+                                                <div class="mt-1"> {# Add margin-top for spacing #}
+                                                    <small class="text-muted">
+                                                        <i class="bi bi-arrow-return-right me-1"></i>
+                                                        Create JC for: "{{ task.description | truncate(30, True) | escape }}" on {{ task.equipment_ref.code | escape }}
+                                                        {% if due_date_value %} {# Only show if a due date was determined #}
+                                                            <span class="text-primary">(Due: {{ due_date_display }})</span>
+                                                        {% endif %}
+                                                    </small>
+                                                </div>
+                                                {# ============================================ #}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="card-body text-center"> {# Add padding back if no tasks #}
+                            <p class="text-muted text-center">No tasks currently overdue or due soon. <a href="{{ url_for('planned_maintenance.tasks_list') }}">View all tasks.</a></p>
+                        </div>
+                    {% endif %}
+                </div>
+                    <div class="card-footer text-muted">
+                    <small>Shows tasks Overdue, Due Soon, or with Warnings. Log usage for accurate scheduling.</small>
+                </div>
+            </div>
             <!-- Equipment Status Card -->
             <div class="card mb-4">
                 <div class="card-header d-flex justify-content-between align-items-center">
@@ -183,7 +183,7 @@
                                     {% for eq in equipment %} {# Loop through the filtered equipment #}
                                         {% set last_check_date_obj = eq.latest_checklist.check_date if eq.latest_checklist else None %}
                                         {% set last_check_date_str = last_check_date_obj.strftime('%Y-%m-%d') if last_check_date_obj else 'Never' %}
-                                        {% set checked_today = last_check_date_obj and last_check_date_obj.strftime('%Y-%m-%d') == today %}
+                                        {% set checked_today = last_check_date_obj and last_check_date_obj.date() == today %}
                                         {# Highlight row if checklist needed but not done #}
                                         <tr class="{% if eq.checklist_required and not checked_today and last_check_date_str != 'Never' %}table-danger{% endif %}">
                                             <td><small>{{ eq.code }} - {{ eq.name }}</small></td>

@@ -284,7 +284,7 @@ def delete_job_card(id):
 # === Maintenance Plan API Routes ===
 # ==============================================================================
 
-@api_bp.route('/maintenance_plan', methods=['GET'])
+@api_bp.route('/', methods=['GET'])
 def get_maintenance_plan():
     """
     Returns the generated maintenance plan entries for a specific year and month.
