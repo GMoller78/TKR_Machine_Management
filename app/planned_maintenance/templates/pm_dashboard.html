@@ -95,25 +95,48 @@
                                                     <td style="white-space: normal !important;"> {# Ensure wrapping in the cell #}
                                                         <form method="POST" action="{{ url_for('planned_maintenance.new_job_card_from_task', task_id=task.id) }}" class="d-inline mb-1"> {# Added mb-1 for spacing #}
                                                             <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+
+                                                            {# == Determine Due Date Value and Display String == #}
+                                                            {% set due_date_value = '' %} {# For hidden input value (YYYY-MM-DD) #}
+                                                            {% set due_date_display = 'N/A' %} {# For display text #}
+
+                                                            {# Check if task is Overdue using the status string #}
+                                                            {% if task.due_status and 'Overdue' in task.due_status %}
+                                                                {% set due_date_value = today.isoformat() %} {# Use today's date object #}
+                                                                {% set due_date_display = today.strftime('%Y-%m-%d') %}
+                                                            {# Check if task has a calculated due_date (which is a datetime object or None) #}
+                                                            {% elif task.due_date and task.due_date is not none %}
+                                                                {# Format the datetime object's date part as YYYY-MM-DD #}
+                                                                {% set due_date_value = task.due_date.strftime('%Y-%m-%d') %}
+                                                                {% set due_date_display = task.due_date.strftime('%Y-%m-%d') %}
+                                                            {# Optional: Handle 'Never Performed'? Maybe don't set a due date? #}
+                                                            {# Default is handled by due_date_value = '' #}
+                                                            {% endif %}
+
+                                                            {# == Hidden input for due_date == #}
+                                                            <input type="hidden" name="due_date" value="{{ due_date_value }}">
+                                                            {# ================================= #}
+
                                                             <div class="input-group input-group-sm">
                                                                 <input type="text" name="technician" class="form-control form-control-sm" placeholder="Tech" style="max-width: 70px;" title="Assign Technician (Optional)">
-                                                                {# == MODIFIED BUTTON: Shorter title == #}
                                                                 <button type="submit"
                                                                         class="btn btn-success btn-sm"
                                                                         title="Create Job Card"> {# Keep a simple title for hover #}
                                                                     <i class="bi bi-plus-circle-fill"></i>
                                                                 </button>
-                                                                {# ================================ #}
                                                             </div>
                                                         </form>
-                                                        {# == NEW: Always visible description == #}
+                                                        {# == MODIFIED: Visible description shows due date == #}
                                                         <div class="mt-1"> {# Add margin-top for spacing #}
                                                             <small class="text-muted">
-                                                                <i class="bi bi-arrow-return-right me-1"></i> <!-- Optional icon -->
-                                                                Create JC for: "{{ task.description | truncate(40, True) | escape }}" on {{ task.equipment_ref.code | escape }}
+                                                                <i class="bi bi-arrow-return-right me-1"></i>
+                                                                Create JC for: "{{ task.description | truncate(30, True) | escape }}" on {{ task.equipment_ref.code | escape }}
+                                                                {% if due_date_value %} {# Only show if a due date was determined #}
+                                                                    <span class="text-primary">(Due: {{ due_date_display }})</span>
+                                                                {% endif %}
                                                             </small>
                                                         </div>
-                                                        {# ===================================== #}
+                                                        {# ============================================ #}
                                                     </td>
                                                 </tr>
                                             {% endfor %}
@@ -262,57 +285,71 @@
                     <small>Equipment marked 'Sold' is hidden. Red row indicates checklist required but not completed today.</small>
                 </div>
             </div>
-
-            <!-- Open Job Cards Card (No changes needed here) -->
+            <!-- Open Job Cards Card -->
             <div class="card mb-4">
-                 <div class="card-header d-flex justify-content-between align-items-center">
-                    <span>Open Job Cards ({{ job_cards|length }})</span>
-                    {# Optional: Link to a dedicated Job Card list page #}
-                    {# <a href="{{ url_for('some_module.job_card_list') }}" class="btn btn-sm btn-outline-primary">View All Open JCs</a> #}
-                </div>
-                 <div class="card-body p-0"> {# Remove padding #}
-                    {% if job_cards %}
-                        <div class="table-responsive">
-                            <table class="table table-striped table-hover table-sm mb-0"> {# table-sm #}
-                                <thead>
-                                    <tr>
-                                        <th>#</th>
-                                        {# <th>Created</th> #} {# Optional #}
-                                        <th>Equipment</th>
-                                        <th>Description</th>
-                                        <th>Due Date</th>
-                                        <th>Status</th>
-                                        <th>Technician</th>
-                                        <th>Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for jc in job_cards %}
-                                        <tr>
-                                            <td><small>{{ jc.job_number }}</small></td>
-                                            {# <td><small>{{ jc.start_datetime.strftime('%Y-%m-%d') if jc.start_datetime else 'N/A' }}</small></td> #}
-                                            <td><small>{{ jc.equipment_ref.code }} - {{ jc.equipment_ref.name }}</small></td>
-                                            <td><small>{{ jc.description | truncate(40) }}</small></td>
-                                            <td><small>{{ jc.due_date.strftime('%Y-%m-%d') if jc.due_date else 'Not Set' }}</small></td>
-                                            <td><small><span class="badge bg-warning">{{ jc.status }}</span></small></td>
-                                            <td><small>{{ jc.technician or 'Unassigned' }}</small></td>
-                                            <td>
-                                                <a href="{{ url_for('planned_maintenance.complete_job_card', id=jc.id) }}"
-                                                class="btn btn-success btn-xs" title="Complete Job Card"><i class="bi bi-check-lg"></i> Complete</a>
-                                            </td>
-                                        </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    {% else %}
-                         <div class="card-body text-center"> {# Add padding back #}
-                            <p class="text-muted mb-0">No open job cards.</p>
-                        </div>
-                    {% endif %}
-                </div>
+                <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Open Job Cards ({{ job_cards|length }})</span>
+                {# Optional: Link to a dedicated Job Card list page #}
+                {# <a href="{{ url_for('some_module.job_card_list') }}" class="btn btn-sm btn-outline-primary">View All Open JCs</a> #}
             </div>
-
+                <div class="card-body p-0"> {# Remove padding #}
+                {% if job_cards %}
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover table-sm mb-0"> {# table-sm #}
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Equipment</th>
+                                    <th>Description</th>
+                                    <th>Due Date</th>
+                                    <th>Status</th>
+                                    <th>Technician</th>
+                                    <!-- == MODIFIED: Action Column Header == -->
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for jc in job_cards %}
+                                    <tr>
+                                        <td><small>{{ jc.job_number }}</small></td>
+                                        <td><small>{{ jc.equipment_ref.code }} - {{ jc.equipment_ref.name }}</small></td>
+                                        <td><small>{{ jc.description | truncate(40) }}</small></td>
+                                        <td><small>{{ jc.due_date.strftime('%Y-%m-%d') if jc.due_date else 'Not Set' }}</small></td>
+                                        <td><small><span class="badge {% if jc.status == 'To Do' %}bg-warning text-dark{% elif jc.status == 'In Progress' %}bg-info text-dark{% else %}bg-secondary{% endif %}">{{ jc.status }}</span></small></td>
+                                        <td><small>{{ jc.technician or 'Unassigned' }}</small></td>
+                                        <!-- == MODIFIED: Actions Cell Content == -->
+                                        <td>
+                                            <div class="btn-group btn-group-sm" role="group" aria-label="Job Card Actions">
+                                                {# Complete Button #}
+                                                <a href="{{ url_for('planned_maintenance.complete_job_card', id=jc.id) }}"
+                                                    class="btn btn-outline-success btn-xs" title="Complete Job Card">
+                                                    <i class="bi bi-check-lg"></i> Complete
+                                                </a>
+                                                {# WhatsApp Button (only if URL was generated) #}
+                                                {% if jc.whatsapp_share_url %}
+                                                    <a href="{{ jc.whatsapp_share_url }}"
+                                                        class="btn btn-outline-primary btn-xs"
+                                                        target="_blank" {# Open in new tab/WhatsApp client #}
+                                                        title="Share on WhatsApp">
+                                                        <i class="bi bi-whatsapp"></i> Share
+                                                    </a>
+                                                {% endif %}
+                                                {# Optional: Add other buttons like Edit, View Details etc. here #}
+                                            </div>
+                                        </td>
+                                        <!-- ================================== -->
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                        <div class="card-body text-center"> {# Add padding back #}
+                        <p class="text-muted mb-0">No open job cards.</p>
+                    </div>
+                {% endif %}
+            </div>
+            </div>
             <!-- Recent Activity Card (No changes needed here) -->
             <div class="card mb-4">
                 <div class="card-header">Recent Activity (Last {{ recent_activities|length }})</div>
