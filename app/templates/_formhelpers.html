@@ -1,0 +1,53 @@
+{# app/templates/_formhelpers.html #}
+{% macro render_pagination(pagination, endpoint, query_params={}) %}
+    {# Renders pagination controls for a Flask-SQLAlchemy pagination object #}
+    {# Args: #}
+    {#   pagination: The pagination object from query.paginate() #}
+    {#   endpoint: The Flask endpoint name for the view being paginated (e.g., 'blueprint.view_func') #}
+    {#   query_params: A dictionary of existing query parameters (like request.args) to preserve filters #}
+
+    {% if pagination and pagination.pages > 1 %} {# Only render if more than one page exists #}
+        <nav aria-label="Page navigation">
+            {# You can change justify-content-center to end or start if needed #}
+            <ul class="pagination pagination-sm justify-content-center flex-wrap"> {# Added flex-wrap for responsiveness #}
+
+                {# Previous Page Link #}
+                <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                    {# Use **query_params to unpack existing args, add page=... #}
+                    <a class="page-link" href="{% if pagination.has_prev %}{{ url_for(endpoint, page=pagination.prev_num, **query_params) }}{% else %}#{% endif %}" aria-label="Previous">
+                        <span aria-hidden="true">«</span>
+                        <span class="visually-hidden">Previous</span>
+                    </a>
+                </li>
+
+                {# Page Number Links - iter_pages handles skipping pages with None #}
+                {% for p in pagination.iter_pages() %}
+                    {% if p %}
+                        {% if p == pagination.page %}
+                            {# Current Active Page #}
+                            <li class="page-item active" aria-current="page">
+                                <span class="page-link">{{ p }}</span>
+                            </li>
+                        {% else %}
+                            {# Other Page Link #}
+                            <li class="page-item">
+                                <a class="page-link" href="{{ url_for(endpoint, page=p, **query_params) }}">{{ p }}</a>
+                            </li>
+                        {% endif %}
+                    {% else %}
+                        {# Ellipsis for skipped page ranges #}
+                        <li class="page-item disabled"><span class="page-link">…</span></li>
+                    {% endif %}
+                {% endfor %}
+
+                {# Next Page Link #}
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                    <a class="page-link" href="{% if pagination.has_next %}{{ url_for(endpoint, page=pagination.next_num, **query_params) }}{% else %}#{% endif %}" aria-label="Next">
+                        <span aria-hidden="true">»</span>
+                         <span class="visually-hidden">Next</span>
+                    </a>
+                </li>
+            </ul>
+        </nav>
+    {% endif %}
+{% endmacro %}

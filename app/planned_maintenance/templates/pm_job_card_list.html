@@ -1,0 +1,228 @@
+{# --- START OF FILE pm_job_card_list.html --- #}
+{# tkr_system/app/templates/pm_job_card_list.html #}
+{% extends "pm_base.html" %}
+{% from "_formhelpers.html" import render_pagination %} {# Assuming you have pagination macros #}
+
+{% block title %}{{ title }} - {{ super() }}{% endblock %}
+
+{% block styles %}
+{{ super() }}
+{# Add styles for multi-select if using a library like Select2 or Bootstrap Multiselect #}
+{# Example for Bootstrap Icons #}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+<style>
+    .filter-form .form-label { font-size: 0.9rem; margin-bottom: 0.25rem; }
+    .action-btn-group .btn { padding: 0.2rem 0.4rem; font-size: 0.8rem; }
+    .table th, .table td { vertical-align: middle; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <h1 class="mb-4">{{ title }}</h1>
+
+    {# Filter Form Card #}
+    <div class="card shadow-sm mb-4 filter-form">
+        <div class="card-header">
+            <i class="bi bi-funnel-fill me-2"></i>Filters
+        </div>
+        <div class="card-body">
+            <form method="GET" action="{{ url_for('planned_maintenance.job_card_list') }}">
+                <div class="row g-3 align-items-end">
+                    {# Date Range #}
+                    <div class="col-md-2">
+                        <label for="start_date" class="form-label">Due Date From</label>
+                        <input type="date" class="form-control form-control-sm" id="start_date" name="start_date" value="{{ current_filters.start_date or '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="end_date" class="form-label">Due Date To</label>
+                        <input type="date" class="form-control form-control-sm" id="end_date" name="end_date" value="{{ current_filters.end_date or '' }}">
+                    </div>
+
+                    {# === MODIFIED: Equipment Text Search === #}
+                    <div class="col-md-4">
+                        <label for="equipment_search" class="form-label">Equipment Search</label>
+                        <input type="text" class="form-control form-control-sm" id="equipment_search" name="equipment_search"
+                               placeholder="Enter code or name..."
+                               value="{{ current_filters.equipment_search or '' }}">
+                         <div class="form-text">Filters by matching code or name.</div>
+                    </div>
+                    {# === END MODIFICATION === #}
+
+                    {# Status Select #}
+                    <div class="col-md-2">
+                        <label for="status" class="form-label">Status</label>
+                        <select class="form-select form-select-sm" id="status" name="status">
+                            {% for stat in job_card_statuses %}
+                                <option value="{{ stat }}" {% if stat == current_filters.status %}selected{% endif %}>
+                                    {{ stat }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    {# Action Buttons #}
+                    <div class="col-md-2 text-end">
+                        <button type="submit" class="btn btn-primary btn-sm" title="Apply Filters">
+                            <i class="bi bi-search"></i> <span class="d-none d-lg-inline">Filter</span>
+                        </button>
+                        <a href="{{ url_for('planned_maintenance.job_card_list') }}" class="btn btn-secondary btn-sm ms-1" title="Reset Filters">
+                            <i class="bi bi-arrow-clockwise"></i> <span class="d-none d-lg-inline">Reset</span>
+                        </a>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {# Results Table Card #}
+    <div class="card shadow-sm">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span>Results ({{ pagination.total if pagination else 0 }} found)</span>
+            {# Optional: Add 'Create New Job Card' button here #}
+            <button type="button" class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#newJobCardModal">
+                <i class="bi bi-plus-circle-fill me-1"></i> Create New Job Card
+            </button>
+        </div>
+        <div class="card-body p-0"> {# Remove padding for table #}
+            {% if job_cards %}
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover table-sm mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>#</th>
+                                <th>Equipment</th>
+                                <th>Description</th>
+                                <th>Due Date</th>
+                                <th>Status</th>
+                                <th>Technician</th>
+                                <th style="width: 18%;">Actions</th> {# Wider actions column #}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for jc in job_cards %}
+                                <tr>
+                                    <td>{{ jc.job_number }}</td>
+                                    <td>
+                                        {% if jc.equipment_ref %}
+                                            <small>{{ jc.equipment_ref.code }} - {{ jc.equipment_ref.name }}</small>
+                                        {% else %}
+                                            <span class="text-danger">Missing Eq!</span>
+                                        {% endif %}
+                                    </td>
+                                    <td><small>{{ jc.description | truncate(50) }}</small></td>
+                                    <td>{{ jc.due_date.strftime('%Y-%m-%d') if jc.due_date else '--' }}</td>
+                                    <td>
+                                        <span class="badge {% if jc.status == 'Done' %}bg-success{% elif jc.status == 'To Do' %}bg-warning text-dark{% elif jc.status == 'In Progress' %}bg-info text-dark{% else %}bg-secondary{% endif %}">
+                                            {{ jc.status }}
+                                        </span>
+                                    </td>
+                                    <td><small>{{ jc.technician or '--' }}</small></td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm action-btn-group" role="group" aria-label="Job Card Actions for {{ jc.job_number }}">
+                                            {# Complete Button - Show only if not Done #}
+                                            {% if jc.status != 'Done' %}
+                                            <a href="{{ url_for('planned_maintenance.complete_job_card', id=jc.id) }}"
+                                                class="btn btn-outline-success" title="Complete">
+                                                <i class="bi bi-check-lg"></i>
+                                            </a>
+                                            {% endif %}
+
+                                            {# Print Button (links to detail view) #}
+                                            <a href="{{ url_for('planned_maintenance.job_card_detail', id=jc.id) }}"
+                                               class="btn btn-outline-secondary" title="View/Print Details">
+                                                <i class="bi bi-printer"></i>
+                                            </a>
+
+                                            {# Share Button #}
+                                            {% if jc.whatsapp_share_url %}
+                                                <a href="{{ jc.whatsapp_share_url }}" target="_blank"
+                                                    class="btn btn-outline-primary" title="Share via WhatsApp">
+                                                    <i class="bi bi-whatsapp"></i>
+                                                </a>
+                                            {% endif %}
+
+                                            {# Edit Button - Placeholder Link #}
+                                             {% if jc.status != 'Done' %} {# Maybe prevent editing done cards? #}
+                                                <a href="{{ url_for('planned_maintenance.edit_job_card', id=jc.id) }}"
+                                                    class="btn btn-outline-warning" title="Edit">
+                                                    <i class="bi bi-pencil-fill"></i>
+                                                </a>
+                                             {% endif %}
+
+                                            {# Delete Button - Placeholder Form #}
+                                            {% if jc.status != 'Done' %} {# Maybe prevent deleting done cards? #}
+                                                <form method="POST" action="{{ url_for('planned_maintenance.delete_job_card', id=jc.id) }}" class="d-inline"
+                                                      onsubmit="return confirm('Are you sure you want to delete Job Card {{ jc.job_number }}? This cannot be undone.');">
+                                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                                                    <button type="submit" class="btn btn-outline-danger" title="Delete">
+                                                        <i class="bi bi-trash-fill"></i>
+                                                    </button>
+                                                </form>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% elif error %}
+                 <div class="card-body">
+                    <div class="alert alert-danger" role="alert">
+                        {{ error }}
+                    </div>
+                 </div>
+            {% else %}
+                 <div class="card-body">
+                    <p class="text-muted text-center mb-0">No job cards found matching the selected filters.</p>
+                </div>
+            {% endif %}
+        </div> {# End card-body #}
+        
+        {# Pagination Footer #}
+        {% if pagination and pagination.pages > 1 %}
+            <div class="card-footer">
+                {{ render_pagination(pagination, 'planned_maintenance.job_card_list', request.args) }}
+            </div>
+        {% endif %}
+    </div> {# End card #}
+
+</div> {# End container #}
+
+{# Include Modal for Creating New Job Card ( Reuse from dashboard or specific one ) #}
+{% include 'pm_modals.html' ignore missing %} {# Or include the specific modal definition here #}
+
+{# Placeholder template for edit view - create this file if needed #}
+{# --- START pm_job_card_form_placeholder.html --- #}
+{# {% extends "pm_base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<div class="container mt-4">
+    <h1>{{ title }}</h1>
+    <div class="alert alert-info">Edit form not implemented yet.</div>
+    <a href="{{ url_for('planned_maintenance.job_card_list') }}" class="btn btn-secondary">Back to List</a>
+</div>
+{% endblock %} #}
+{# --- END pm_job_card_form_placeholder.html --- #}
+
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{# Add JS for any libraries used (e.g., Select2 for multi-select) #}
+{# Example: Initialize Select2 if you were using it
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script>
+    $(document).ready(function() {
+        $('#equipment_ids').select2({
+            placeholder: "Select Equipment (optional)",
+            allowClear: true
+        });
+    });
+</script>
+#}
+{% endblock %}
+<!-- Modals for Usage and Checklist Logging -->
+
+{# --- END OF FILE pm_job_card_list.html --- #}

@@ -289,8 +289,16 @@
             <div class="card mb-4">
                 <div class="card-header d-flex justify-content-between align-items-center">
                 <span>Open Job Cards ({{ job_cards|length }})</span>
-                {# Optional: Link to a dedicated Job Card list page #}
-                {# <a href="{{ url_for('some_module.job_card_list') }}" class="btn btn-sm btn-outline-primary">View All Open JCs</a> #}
+                <div> {# Group buttons #}
+                    <a href="{{ url_for('planned_maintenance.job_card_list') }}" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-list-ul me-1"></i> View All Job Cards
+                    </a>
+                    <button type="button" class="btn btn-sm btn-success me-2" data-bs-toggle="modal" data-bs-target="#newJobCardModal">
+                        <i class="bi bi-plus-circle-fill me-1"></i> Create New Job Card
+                    </button>
+                    {# Optional: Link to a dedicated Job Card list page #}
+                    {# <a href="{{ url_for('some_module.job_card_list') }}" class="btn btn-sm btn-outline-primary">View All Open JCs</a> #}
+                </div>
             </div>
                 <div class="card-body p-0"> {# Remove padding #}
                 {% if job_cards %}

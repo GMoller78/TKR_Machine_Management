@@ -1,6 +1,6 @@
 import logging
 # Corrected Flask imports
-from flask import render_template, request, redirect, url_for, flash, make_response
+from flask import render_template, request, redirect, url_for, flash, make_response, session, jsonify
 from urllib.parse import urlencode
 # Corrected datetime imports
 from datetime import datetime, timedelta, timezone, date, time
@@ -18,7 +18,7 @@ from app.models import (
 )
 from itertools import zip_longest
 # Corrected SQLAlchemy imports (added extract)
-from sqlalchemy import desc, func, extract, and_
+from sqlalchemy import desc, func, extract, and_, or_
 import traceback
 from collections import defaultdict
 
@@ -42,6 +42,45 @@ logging.basicConfig(level=logging.DEBUG,
 # --- Planned Maintenance Routes ---
 DUE_SOON_ESTIMATED_DAYS_THRESHOLD = 7
 EQUIPMENT_STATUSES = ['Operational', 'At OEM', 'Sold', 'Broken Down', 'Under Repair', 'Awaiting Spares']
+JOB_CARD_STATUSES = ['To Do', 'In Progress', 'Done']
+
+def generate_whatsapp_share_url(job_card):
+    """Generates a WhatsApp share URL for a given job card."""
+    if not job_card:
+        return None
+    try:
+        if job_card.equipment_ref:
+            equipment_name = f"{job_card.equipment_ref.code} - {job_card.equipment_ref.name}"
+        else:
+            equipment_name = "Unknown Equipment"
+        due_date_str = job_card.due_date.strftime('%Y-%m-%d') if job_card.due_date else 'Not Set'
+        technician_str = job_card.technician or 'Unassigned'
+        status_str = job_card.status or 'N/A'
+        start_str = job_card.start_datetime.strftime('%Y-%m-%d %H:%M') if job_card.start_datetime else 'N/A'
+        end_str = job_card.end_datetime.strftime('%Y-%m-%d %H:%M') if job_card.end_datetime else 'N/A'
+
+        # Decide which details to include based on status maybe?
+        whatsapp_msg = (
+            f"*Job Card Details:*\n"
+            f"*Number:* {job_card.job_number}\n"
+            f"*Equipment:* {equipment_name}\n"
+            f"*Task:* {job_card.description}\n"
+            f"*Status:* {status_str}\n"
+            f"*Assigned:* {technician_str}\n"
+            f"*Due:* {due_date_str}\n"
+        )
+        # Add completion details if done
+        if job_card.status == 'Done':
+             whatsapp_msg += f"*Started:* {start_str}\n"
+             whatsapp_msg += f"*Completed:* {end_str}\n"
+             whatsapp_msg += f"*Comments:* {job_card.comments or 'None'}\n"
+             # Consider adding parts used if desired
+
+        encoded_msg = urlencode({'text': whatsapp_msg})
+        return f"https://wa.me/?{encoded_msg}"
+    except Exception as e:
+        logging.error(f"Error generating WhatsApp URL for JC {getattr(job_card, 'id', 'N/A')}: {e}", exc_info=True)
+        return None
 
 def predict_task_due_dates_in_range(task, start_date, end_date):
     """
@@ -540,16 +579,14 @@ def dashboard():
     logging.debug("--- Entering dashboard route ---")
     try:
         # 1. Fetch Equipment Data (for status and modals)
-        equipment_list = Equipment.query.filter(
-            Equipment.status != 'Sold' # Exclude equipment with status 'Sold'
-        ).order_by(Equipment.type, Equipment.name).all()
-
+        all_equipment_list = Equipment.query.order_by(Equipment.type, Equipment.code).all()
+        equipment_for_display = [eq for eq in all_equipment_list if eq.status != 'Sold']
         # Get today's date object and string representation
         today_date_obj = date.today() # Use date.today() for date object
         today_str = today_date_obj.strftime('%Y-%m-%d') # String for comparisons if needed
 
         logging.debug("Fetching latest usage/checklist for equipment...")
-        for eq in equipment_list:
+        for eq in equipment_for_display:
             # Get latest usage and checklist for each equipment
             latest_usage = UsageLog.query.filter_by(equipment_id=eq.id).order_by(desc(UsageLog.log_date)).first()
             latest_checklist = Checklist.query.filter_by(equipment_id=eq.id).order_by(desc(Checklist.check_date)).first()
@@ -752,7 +789,8 @@ def dashboard():
         return render_template(
             'pm_dashboard.html',
             title='PM Dashboard',
-            equipment=equipment_list,           # For status table and modals
+            equipment=equipment_for_display,
+            all_equipment=all_equipment_list,
             job_cards=open_job_cards,           # For open job cards table (with whatsapp_share_url)
             tasks=tasks_with_status_filtered,   # For upcoming tasks table (with status/due info)
             recent_activities=recent_activities, # For activity feed
@@ -769,6 +807,7 @@ def dashboard():
                                title='PM Dashboard - Error',
                                error=True, # Flag for the template to show an error message
                                equipment=[], # Provide empty lists to prevent template errors
+                               all_equipment=[],
                                job_cards=[],
                                tasks=[],
                                recent_activities=[],
@@ -977,6 +1016,159 @@ def edit_equipment(id):
 # ==============================================================================
 # === Job cards            ===
 # ==============================================================================
+
+@bp.route('/job_cards', methods=['GET'])
+def job_card_list():
+    """Displays a list of job cards with filtering options."""
+    logging.debug("--- Request for Job Card List View ---")
+    try:
+        # 1. Get Filter Parameters from Request Args
+        page = request.args.get('page', 1, type=int)
+        per_page = 25 # Or get from request.args or config
+
+        # Dates - filter by 'due_date' for relevance? Or 'created_at'? Let's use due_date
+        # Default to no date filter unless specified
+        start_date_str = request.args.get('start_date', '')
+        end_date_str = request.args.get('end_date', '')
+
+        # Equipment - Expecting a list of IDs from multi-select
+        equipment_search_term = request.args.get('equipment_search', '').strip() # Get text and strip whitespace
+
+        # Status - Allow 'All' or specific status
+        status_filter = request.args.get('status', 'All') # Default to 'All'
+
+        # Convert filter values
+        start_date = None
+        end_date = None
+        equipment_ids = []
+
+        if start_date_str:
+            try:
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                flash(f"Invalid start date format: {start_date_str}. Please use YYYY-MM-DD.", "warning")
+        if end_date_str:
+            try:
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                 # Make end_date inclusive by setting time to end of day for datetime comparison if needed
+                 # If comparing date columns directly, this isn't strictly necessary.
+                 # end_date_dt = datetime.combine(end_date, time.max)
+            except ValueError:
+                flash(f"Invalid end date format: {end_date_str}. Please use YYYY-MM-DD.", "warning")
+
+        if equipment_search_term:
+            search_pattern = f"%{equipment_search_term}%"
+            # We need to filter based on the joined Equipment table
+            # The joinedload above ensures Equipment is available for filtering
+            query = query.join(JobCard.equipment_ref).filter( # Explicit join might be safer here
+                or_(
+                    Equipment.code.ilike(search_pattern),
+                    Equipment.name.ilike(search_pattern)
+                )
+            )
+
+        logging.debug(f"Filters - Start: {start_date}, End: {end_date}, Equip IDs: {equipment_ids}, Status: {status_filter}, Page: {page}")
+
+        # 2. Build Base Query
+        query = JobCard.query.options(
+            db.joinedload(JobCard.equipment_ref) # Eager load equipment
+        )
+
+        # 3. Apply Filters
+        if start_date:
+            # Filter where due_date is on or after start_date
+            query = query.filter(JobCard.due_date >= start_date)
+        if end_date:
+            # Filter where due_date is on or before end_date
+            query = query.filter(JobCard.due_date <= end_date)
+            # Alternative for created_at: query = query.filter(JobCard.created_at <= end_date_dt)
+
+        if equipment_ids:
+            query = query.filter(JobCard.equipment_id.in_(equipment_ids))
+
+        if status_filter and status_filter != 'All' and status_filter in JOB_CARD_STATUSES:
+            query = query.filter(JobCard.status == status_filter)
+
+        # 4. Ordering (e.g., newest first or by due date)
+        query = query.order_by(JobCard.id.desc()) # Or JobCard.due_date.desc().nullslast()
+
+        # 5. Execute Query with Pagination
+        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+        job_cards_page = pagination.items
+
+        # 6. Generate WhatsApp URLs for the current page items
+        for jc in job_cards_page:
+            jc.whatsapp_share_url = generate_whatsapp_share_url(jc)
+
+        # 7. Fetch Data for Filter Dropdowns
+        all_equipment = Equipment.query.order_by(Equipment.code).all()
+
+        # 8. Store filter values for repopulating the form
+        current_filters = {
+            'start_date': start_date_str,
+            'end_date': end_date_str,
+            'equipment_ids': equipment_ids, # Pass list of ints
+            'status': status_filter
+        }
+
+        logging.debug(f"Found {pagination.total} job cards matching filters. Displaying page {page} ({len(job_cards_page)} items).")
+
+        return render_template(
+            'pm_job_card_list.html',
+            title="Job Card List",
+            pagination=pagination, # Pass pagination object
+            job_cards=job_cards_page, # Pass items for the current page
+            all_equipment=all_equipment,
+            job_card_statuses=['All'] + JOB_CARD_STATUSES, # Add 'All' option
+            current_filters=current_filters, # Pass current filters back
+            today=date.today() # Pass today's date for potential defaults
+        )
+
+    except Exception as e:
+        logging.error(f"--- Error loading job card list view: {e} ---", exc_info=True)
+        flash(f"An error occurred while loading the job card list: {e}", "danger")
+        # Render the template safely on error
+        return render_template(
+            'pm_job_card_list.html',
+            title="Job Card List - Error",
+            error=f"Could not load job cards: {e}",
+            pagination=None, job_cards=[], all_equipment=[],
+            job_card_statuses=['All'] + JOB_CARD_STATUSES,
+            current_filters={}, today=date.today()
+        )
+
+@bp.route('/job_card/edit/<int:id>', methods=['GET', 'POST'])
+def edit_job_card(id):
+    # TODO: Implement GET to show form, POST to update JobCard
+    job_card = JobCard.query.get_or_404(id)
+    if request.method == 'POST':
+        flash(f"Edit functionality for Job Card {job_card.job_number} not yet implemented.", "info")
+        # Process form data, update job_card, commit, redirect
+        return redirect(url_for('planned_maintenance.job_card_list')) # Redirect back to list for now
+    else: # GET
+        flash(f"Edit form for Job Card {job_card.job_number} not yet implemented.", "info")
+         # Fetch necessary data (equipment, etc.) for form
+        return render_template('pm_job_card_form_placeholder.html', title=f"Edit JC {job_card.job_number}", job_card=job_card) # Placeholder template
+
+@bp.route('/job_card/delete/<int:id>', methods=['POST'])
+def delete_job_card(id):
+    # TODO: Implement deletion logic with CSRF check
+    job_card = JobCard.query.get_or_404(id)
+    # Add CSRF validation here
+    try:
+        # Optional: Add checks - e.g., cannot delete 'Done' cards?
+        # db.session.delete(job_card)
+        # db.session.commit()
+        flash(f"DELETE functionality for Job Card {job_card.job_number} not yet implemented.", "warning")
+        logging.info(f"Placeholder: Delete requested for Job Card {id} ({job_card.job_number})")
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error during placeholder delete for JC {id}: {e}", exc_info=True)
+        flash(f"Error during placeholder delete: {e}", "danger")
+
+    # Redirect back to the list, potentially preserving filters? (More complex)
+    return redirect(url_for('planned_maintenance.job_card_list'))
+
 @bp.route('/job_card/<int:id>', methods=['GET']) # Use GET to view details
 def job_card_detail(id):
     """Displays the details of a single Job Card."""
@@ -985,12 +1177,6 @@ def job_card_detail(id):
         # Fetch the job card with eager loading of related data
         job_card = JobCard.query.options(
             db.joinedload(JobCard.equipment_ref), # Load equipment details
-
-            # Use subqueryload for the first level dynamic relationship 'parts_used'
-            # Then chain joinedload for subsequent relationships from JobCardPart
-            db.subqueryload(JobCard.parts_used)  # Load JobCardPart objects in a separate query
-                .joinedload(JobCardPart.part)     # From JobCardPart, load the related Part via JOIN
-                .joinedload(Part.supplier_ref)  # From Part, load the related Supplier via JOIN
 
         ).get_or_404(id) # Use get_or_404 to handle not found errors
 
@@ -1014,7 +1200,6 @@ def job_card_detail(id):
         flash(f"An error occurred while loading the job card details: {e}", "danger")
         # Redirect to dashboard or job card list on error
         return redirect(url_for('planned_maintenance.dashboard'))
-
 
 @bp.route('/job_card/complete/<int:id>', methods=['GET', 'POST'])
 def complete_job_card(id):
@@ -1156,11 +1341,11 @@ def complete_job_card(id):
             if send_whatsapp:
                 encoded_msg = urlencode({'text': whatsapp_msg})
                 whatsapp_url = f"https://wa.me/?{encoded_msg}"
-                flash('Job card completed. Opening WhatsApp to share.', 'success')
-                return redirect(whatsapp_url)
+                flash(f'Job Card {job_card.job_number} completed. Redirecting to detail view before WhatsApp.', 'success')
+                return redirect(url_for('planned_maintenance.job_card_detail', id=job_card.id))
             else:
                 flash(f'Job Card {job_card.job_number} completed successfully!', 'success')
-                return redirect(url_for('planned_maintenance.dashboard'))
+                return redirect(url_for('planned_maintenance.job_card_detail', id=job_card.id))
 
         except ValueError as ve:
             db.session.rollback()
@@ -1252,6 +1437,110 @@ def new_job_card():
         db.session.rollback()
         flash(f"Error creating job card: {e}", "danger")
         return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
+
+@bp.route('/job_card/create', methods=['POST'])
+def create_job_card():
+    """Processes the form submission for creating a new job card."""
+    logging.info("--- Processing POST request to create new Job Card ---")
+    try:
+        # 1. Get Data from Form
+        equipment_id_str = request.form.get('equipment_id')
+        description = request.form.get('description', '').strip()
+        technician = request.form.get('technician', '').strip() or None # Store None if empty
+        due_date_str = request.form.get('due_date')
+        # Checkbox values are only sent if checked, use 'in request.form'
+        oem_required = 'oem_required' in request.form
+        kit_required = 'kit_required' in request.form
+        send_whatsapp = 'send_whatsapp' in request.form
+
+        logging.debug(f"Received form data: equipment_id='{equipment_id_str}', description='{description}', due_date='{due_date_str}'...")
+
+        # 2. Validation
+        errors = False
+        equipment_id = None
+        if not equipment_id_str or not equipment_id_str.isdigit():
+            flash('Valid Equipment selection is required.', 'danger')
+            errors = True
+        else:
+            equipment_id = int(equipment_id_str)
+            # Optional: Check if equipment actually exists
+            equipment = Equipment.query.get(equipment_id)
+            if not equipment:
+                flash('Selected equipment not found in database.', 'danger')
+                errors = True
+
+        if not description:
+            flash('Task Description is required.', 'danger')
+            errors = True
+
+        due_date = None
+        if due_date_str:
+            try:
+                # Parse date string only, combine with min time for naive datetime
+                due_date_only = datetime.strptime(due_date_str, '%Y-%m-%d').date()
+                due_date = datetime.combine(due_date_only, time.min)
+                logging.debug(f"Parsed due_date: {due_date}")
+            except ValueError:
+                flash('Invalid Due Date format. Please use YYYY-MM-DD.', 'warning')
+                # Decide if this is a fatal error or just ignore the date
+                errors = True # Make it an error for now
+
+        if errors:
+             # Redirect back to the previous page (where the modal was opened)
+             # This isn't ideal for modals as the modal will be closed.
+             # Consider returning a JSON error or using HTMX/AJAX for better modal error handling later.
+             # For now, redirecting to the list view might be the simplest fallback.
+            logging.warning("Validation errors encountered during Job Card creation.")
+            return redirect(request.referrer or url_for('planned_maintenance.job_card_list'))
+
+        # 3. Generate Job Number
+        job_number = generate_next_job_number()
+        logging.debug(f"Generated Job Number: {job_number}")
+
+        # 4. Create JobCard Object
+        new_job_card = JobCard(
+            job_number=job_number,
+            equipment_id=equipment_id,
+            description=description,
+            technician=technician,
+            status='To Do', # Default status for new cards
+            oem_required=oem_required,
+            kit_required=kit_required,
+            due_date=due_date,
+            # start_datetime, end_datetime, comments are null by default
+        )
+
+        # 5. Add to Database
+        db.session.add(new_job_card)
+        db.session.commit()
+        logging.info(f"Successfully created Job Card {job_number} (ID: {new_job_card.id})")
+
+        # 6. Post-Creation Actions (Flash, WhatsApp)
+        flash(f'Job Card {job_number} created successfully!', 'success')
+
+        if send_whatsapp:
+            # We need the newly created object (including relationships if needed by helper)
+            # Re-fetch might be safest if helper relies on lazy loads, or pass necessary data
+            # Since generate_whatsapp_share_url uses equipment_ref, let's pass the object
+            whatsapp_url = generate_whatsapp_share_url(new_job_card)
+            if whatsapp_url:
+                # Option 1: Redirect directly
+                # return redirect(whatsapp_url)
+
+                # Option 2: Flash and redirect normally
+                 flash(f'Share Job Card {job_number} via WhatsApp if needed.', 'info') # Use info level
+                 # Store URL in session to show button on next page? (More complex)
+            else:
+                flash('Could not generate WhatsApp link.', 'warning')
+
+        # 7. Redirect to the Job Card List view
+        return redirect(url_for('planned_maintenance.job_card_list'))
+
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error creating new job card: {e}", exc_info=True)
+        flash(f"An unexpected error occurred while creating the job card: {e}", "danger")
+        return redirect(request.referrer or url_for('planned_maintenance.job_card_list'))
 
 # ==============================================================================
 # === Check Lists ===
