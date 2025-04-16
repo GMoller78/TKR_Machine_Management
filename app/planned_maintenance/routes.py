@@ -1340,6 +1340,7 @@ def job_card_detail(id):
 
         logging.debug(f"Found Job Card: {job_card.job_number}")
 
+        whatsapp_url = generate_whatsapp_share_url(job_card)
         # Accessing parts in the template (e.g., job_card.parts_used.all())
         # will now use the pre-loaded data instead of hitting the DB again.
         # parts_list = job_card.parts_used.all() # Just for logging confirmation if needed

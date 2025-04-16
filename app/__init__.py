@@ -43,6 +43,14 @@ def create_app(config_class=Config):
         except (ValueError, TypeError):
             return str(month_number)
 
+    def nl2br(value):
+        """Convert newlines to <br> tags."""
+        if not value:
+            return ""
+        return value.replace('\n', '<br>\n')
+
+# Then register it with the app
+
     # Debug route for inspecting request and application state
     @app.route('/debug')
     def debug():
@@ -83,9 +91,14 @@ def create_app(config_class=Config):
     from app.inventory import bp as inv_bp
     from app.api.routes import api_bp
 
+    app.jinja_env.filters['nl2br'] = nl2br
+    from app.planned_maintenance.routes import generate_whatsapp_share_url
+    app.jinja_env.globals['generate_whatsapp_share_url'] = generate_whatsapp_share_url
+    
     app.register_blueprint(pm_bp, url_prefix='/planned-maintenance')
     app.register_blueprint(inv_bp, url_prefix='/inventory')
     app.register_blueprint(api_bp)  # Assuming no prefix for API, adjust if needed
+    
 
     # Simple root route for testing
     @app.route('/hello')

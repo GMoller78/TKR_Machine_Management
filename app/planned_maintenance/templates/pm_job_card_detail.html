@@ -193,7 +193,7 @@
         {% endif %}
         
         <!-- Share Button -->
-        {% set whatsapp_url = generate_whatsapp_share_url(job_card) if 'generate_whatsapp_share_url' in globals() else None %}
+        {% set whatsapp_url = None %}
         {% if whatsapp_url %}
             <a href="{{ whatsapp_url }}" class="btn btn-outline-success" target="_blank">
                 <i class="bi bi-whatsapp me-1"></i> Share via WhatsApp
