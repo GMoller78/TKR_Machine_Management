@@ -1,0 +1,220 @@
+{% extends "pm_base.html" %}
+
+{% block title %}Print Job Card {{ job_card.job_number }} - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row mb-4">
+        <div class="col-12 d-print-none">
+            <div class="d-flex justify-content-between">
+                <h1>Print Preview: Job Card #{{ job_card.job_number }}</h1>
+                <div>
+                    <button onclick="window.print()" class="btn btn-primary">
+                        <i class="bi bi-printer me-1"></i> Print
+                    </button>
+                    <a href="{{ url_for('planned_maintenance.job_card_detail', id=job_card.id) }}" class="btn btn-secondary ms-2">
+                        <i class="bi bi-arrow-left me-1"></i> Back
+                    </a>
+                </div>
+            </div>
+            <hr>
+        </div>
+    </div>
+    
+    <!-- Printable Job Card -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <div class="row">
+                        <div class="col-6">
+                            <h2 class="mb-0">JOB CARD #{{ job_card.job_number }}</h2>
+                        </div>
+                        <div class="col-6 text-end">
+                            {% set is_legal = job_card.job_number.startswith('LC-') %}
+                            <h4>
+                                <span class="badge {% if is_legal %}bg-info{% else %}bg-secondary{% endif %}">
+                                    {{ "LEGAL COMPLIANCE" if is_legal else "MAINTENANCE TASK" }}
+                                </span>
+                            </h4>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-4">
+                        <div class="col-6">
+                            <h5>Equipment Details</h5>
+                            <table class="table table-bordered table-sm">
+                                <tr>
+                                    <th style="width: 30%">Code:</th>
+                                    <td><strong>{{ job_card.equipment_ref.code }}</strong></td>
+                                </tr>
+                                <tr>
+                                    <th>Name:</th>
+                                    <td>{{ job_card.equipment_ref.name }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Type:</th>
+                                    <td>{{ job_card.equipment_ref.type }}</td>
+                                </tr>
+                            </table>
+                        </div>
+                        <div class="col-6">
+                            <h5>Job Details</h5>
+                            <table class="table table-bordered table-sm">
+                                <tr>
+                                    <th style="width: 30%">Due Date:</th>
+                                    <td>{{ job_card.due_date.strftime('%Y-%m-%d') if job_card.due_date else 'Not Set' }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Technician:</th>
+                                    <td>{{ job_card.technician or 'Unassigned' }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Status:</th>
+                                    <td>{{ job_card.status }}</td>
+                                </tr>
+                                <tr>
+                                    <th>OEM Required:</th>
+                                    <td>{{ 'Yes' if job_card.oem_required else 'No' }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Kit Required:</th>
+                                    <td>{{ 'Yes' if job_card.kit_required else 'No' }}</td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h5>Task Description</h5>
+                            <div class="p-3 bg-light border rounded">
+                                {{ job_card.description }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Parts Used Section -->
+                    {% set parts = job_card.parts_used.all() %}
+                    {% if parts %}
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h5>Parts Used</h5>
+                            <table class="table table-bordered table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Part Number</th>
+                                        <th>Part Name</th>
+                                        <th>Quantity</th>
+                                        <th>Store</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for part_assoc in parts %}
+                                    <tr>
+                                        <td>{{ part_assoc.part.part_number or 'N/A' }}</td>
+                                        <td>{{ part_assoc.part.name }}</td>
+                                        <td>{{ part_assoc.quantity }}</td>
+                                        <td>{{ part_assoc.part.store }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Comments Section -->
+                    {% if job_card.comments %}
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h5>Comments</h5>
+                            <div class="p-3 bg-light border rounded">
+                                <pre class="mb-0" style="white-space: pre-wrap;">{{ job_card.comments }}</pre>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Completion Information -->
+                    {% if job_card.status == 'Done' and job_card.start_datetime and job_card.end_datetime %}
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h5>Completion Information</h5>
+                            <table class="table table-bordered table-sm">
+                                <tr>
+                                    <th style="width: 30%">Start Time:</th>
+                                    <td>{{ job_card.start_datetime.strftime('%Y-%m-%d %H:%M') }}</td>
+                                </tr>
+                                <tr>
+                                    <th>End Time:</th>
+                                    <td>{{ job_card.end_datetime.strftime('%Y-%m-%d %H:%M') }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Duration:</th>
+                                    <td>
+                                        {% set duration = (job_card.end_datetime - job_card.start_datetime).total_seconds() %}
+                                        {% set hours = (duration // 3600)|int %}
+                                        {% set minutes = ((duration % 3600) // 60)|int %}
+                                        {{ hours }} hours, {{ minutes }} minutes
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                    {% else %}
+                    <!-- Signature Areas for incomplete jobs -->
+                    <div class="row mt-5">
+                        <div class="col-6">
+                            <div class="border-top pt-2">
+                                <p class="text-center mb-1">Technician Signature</p>
+                                <p class="text-center">Date: _________________</p>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="border-top pt-2">
+                                <p class="text-center mb-1">Supervisor Signature</p>
+                                <p class="text-center">Date: _________________</p>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="card-footer text-center">
+                    <small>Printed on {{ now.strftime('%Y-%m-%d %H:%M') }}</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+@media print {
+    body {
+        font-size: 12pt;
+    }
+    .table {
+        width: 100% !important;
+    }
+    .badge {
+        border: 1px solid #000;
+        color: #000 !important;
+        background-color: transparent !important;
+    }
+    .bg-light {
+        background-color: #f8f9fa !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+    .card {
+        border: 1px solid #000 !important;
+    }
+    .card-header {
+        background-color: #f0f0f0 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+}
+</style>
+{% endblock %}

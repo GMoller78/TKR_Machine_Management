@@ -1,0 +1,86 @@
+{% extends "pm_base.html" %}
+
+{% block title %}Edit Job Card {{ job_card.job_number }} - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>Edit Job Card: {{ job_card.job_number }}</h1>
+    
+    <div class="card">
+        <div class="card-header">
+            <i class="bi bi-pencil-square me-2"></i>Edit Job Card Details
+        </div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('planned_maintenance.edit_job_card', id=job_card.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="equipment_id" class="form-label">Equipment</label>
+                        <select class="form-select" id="equipment_id" name="equipment_id" required>
+                            {% for eq in all_equipment %}
+                                <option value="{{ eq.id }}" {% if eq.id == job_card.equipment_id %}selected{% endif %}>{{ eq.code }} - {{ eq.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="status" class="form-label">Status</label>
+                        <select class="form-select" id="status" name="status" required>
+                            {% for status in job_card_statuses %}
+                                <option value="{{ status }}" {% if status == job_card.status %}selected{% endif %}>{{ status }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="description" class="form-label">Description</label>
+                    <textarea class="form-control" id="description" name="description" rows="3" required>{{ job_card.description }}</textarea>
+                </div>
+                
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="technician" class="form-label">Technician</label>
+                        <input type="text" class="form-control" id="technician" name="technician" value="{{ job_card.technician or '' }}">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="due_date" class="form-label">Due Date</label>
+                        <input type="date" class="form-control" id="due_date" name="due_date" value="{{ job_card.due_date.strftime('%Y-%m-%d') if job_card.due_date else '' }}">
+                    </div>
+                </div>
+                
+                <div class="row mb-4">
+                    <div class="col-md-6 d-flex align-items-center">
+                        <div class="form-check me-4">
+                            <input type="checkbox" class="form-check-input" id="oem_required" name="oem_required" {% if job_card.oem_required %}checked{% endif %}>
+                            <label class="form-check-label" for="oem_required">OEM Required</label>
+                        </div>
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="kit_required" name="kit_required" {% if job_card.kit_required %}checked{% endif %}>
+                            <label class="form-check-label" for="kit_required">Kit Required</label>
+                        </div>
+                    </div>
+                </div>
+                
+                {% if job_card.comments %}
+                <div class="mb-3">
+                    <label for="comments" class="form-label">Comments</label>
+                    <textarea class="form-control" id="comments" name="comments" rows="2">{{ job_card.comments }}</textarea>
+                </div>
+                {% endif %}
+                
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-save me-1"></i> Save Changes
+                        </button>
+                        <a href="{{ url_for('planned_maintenance.job_card_detail', id=job_card.id) }}" class="btn btn-secondary ms-2">
+                            <i class="bi bi-x-circle me-1"></i> Cancel
+                        </a>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

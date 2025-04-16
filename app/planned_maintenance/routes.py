@@ -44,7 +44,7 @@ logging.basicConfig(level=logging.DEBUG,
 # --- Planned Maintenance Routes ---
 DUE_SOON_ESTIMATED_DAYS_THRESHOLD = 7
 EQUIPMENT_STATUSES = ['Operational', 'At OEM', 'Sold', 'Broken Down', 'Under Repair', 'Awaiting Spares']
-JOB_CARD_STATUSES = ['To Do', 'In Progress', 'Done']
+JOB_CARD_STATUSES = ['To Do', 'In Progress', 'Done', 'Deleted']
 
 def generate_whatsapp_share_url(job_card):
     """Generates a WhatsApp share URL for a given job card."""
@@ -605,7 +605,7 @@ def dashboard():
         # 2. Fetch Open Job Cards
         logging.debug("Fetching open job cards...")
         open_job_cards = JobCard.query.filter(
-            JobCard.status != 'Done'
+            JobCard.status == 'To Do'
         ).options(
             db.joinedload(JobCard.equipment_ref) # Eager load equipment details
         ).order_by(
@@ -1295,38 +1295,6 @@ def job_card_list():
             current_filters={}, today=date.today()
         )
 
-@bp.route('/job_card/edit/<int:id>', methods=['GET', 'POST'])
-def edit_job_card(id):
-    # TODO: Implement GET to show form, POST to update JobCard
-    job_card = JobCard.query.get_or_404(id)
-    if request.method == 'POST':
-        flash(f"Edit functionality for Job Card {job_card.job_number} not yet implemented.", "info")
-        # Process form data, update job_card, commit, redirect
-        return redirect(url_for('planned_maintenance.job_card_list')) # Redirect back to list for now
-    else: # GET
-        flash(f"Edit form for Job Card {job_card.job_number} not yet implemented.", "info")
-         # Fetch necessary data (equipment, etc.) for form
-        return render_template('pm_job_card_form_placeholder.html', title=f"Edit JC {job_card.job_number}", job_card=job_card) # Placeholder template
-
-@bp.route('/job_card/delete/<int:id>', methods=['POST'])
-def delete_job_card(id):
-    # TODO: Implement deletion logic with CSRF check
-    job_card = JobCard.query.get_or_404(id)
-    # Add CSRF validation here
-    try:
-        # Optional: Add checks - e.g., cannot delete 'Done' cards?
-        # db.session.delete(job_card)
-        # db.session.commit()
-        flash(f"DELETE functionality for Job Card {job_card.job_number} not yet implemented.", "warning")
-        logging.info(f"Placeholder: Delete requested for Job Card {id} ({job_card.job_number})")
-    except Exception as e:
-        db.session.rollback()
-        logging.error(f"Error during placeholder delete for JC {id}: {e}", exc_info=True)
-        flash(f"Error during placeholder delete: {e}", "danger")
-
-    # Redirect back to the list, potentially preserving filters? (More complex)
-    return redirect(url_for('planned_maintenance.job_card_list'))
-
 @bp.route('/job_card/<int:id>', methods=['GET']) # Use GET to view details
 def job_card_detail(id):
     """Displays the details of a single Job Card."""
@@ -1635,6 +1603,168 @@ def create_job_card():
         logging.error(f"Error creating new job card: {e}", exc_info=True)
         flash(f"An unexpected error occurred while creating the job card: {e}", "danger")
         return redirect(request.referrer or url_for('planned_maintenance.job_card_list'))
+
+@bp.route('/job_card/edit/<int:id>', methods=['GET', 'POST'])
+def edit_job_card(id):
+    """Displays the edit form (GET) or processes the update (POST) for a job card."""
+    job_card = JobCard.query.get_or_404(id)
+    
+    if request.method == 'POST':
+        try:
+            # Get form data
+            equipment_id = request.form.get('equipment_id', type=int)
+            description = request.form.get('description', '').strip()
+            technician = request.form.get('technician', '').strip() or None
+            status = request.form.get('status')
+            due_date_str = request.form.get('due_date')
+            oem_required = 'oem_required' in request.form
+            kit_required = 'kit_required' in request.form
+            comments = request.form.get('comments', '')
+            
+            # Validate required fields
+            if not equipment_id:
+                flash('Equipment is required.', 'danger')
+                raise ValueError("Equipment selection is required")
+                
+            if not description:
+                flash('Description is required.', 'danger')
+                raise ValueError("Description is required")
+                
+            if status not in JOB_CARD_STATUSES:
+                flash('Valid status is required.', 'danger')
+                raise ValueError("Invalid status value")
+            
+            # Parse due date
+            due_date_dt = None
+            if due_date_str:
+                try:
+                    # Parse date only, combine with min time for naive datetime
+                    due_date_only = datetime.strptime(due_date_str, '%Y-%m-%d').date()
+                    due_date_dt = datetime.combine(due_date_only, time.min)
+                except ValueError:
+                    flash('Invalid due date format. Please use YYYY-MM-DD.', 'warning')
+                    # Keep the existing due date if we couldn't parse the new one
+                    due_date_dt = job_card.due_date
+            
+            # Update the job card
+            job_card.equipment_id = equipment_id
+            job_card.description = description
+            job_card.technician = technician
+            job_card.status = status
+            job_card.due_date = due_date_dt
+            job_card.oem_required = oem_required
+            job_card.kit_required = kit_required
+            
+            # Only update comments if provided and not empty
+            if comments:
+                # Preserve existing comments if any
+                if job_card.comments:
+                    job_card.comments = f"{job_card.comments}\n\n[Edit on {datetime.now().strftime('%Y-%m-%d %H:%M')}]:\n{comments}"
+                else:
+                    job_card.comments = comments
+            
+            db.session.commit()
+            flash(f'Job Card {job_card.job_number} updated successfully!', 'success')
+            return redirect(url_for('planned_maintenance.job_card_detail', id=job_card.id))
+            
+        except ValueError as ve:
+            # Form validation errors are handled here
+            pass  # Flash messages already set
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Error updating Job Card {id}: {e}", exc_info=True)
+            flash(f"An error occurred while updating the job card: {e}", "danger")
+        
+        # On error, re-fetch data and re-render the form
+        all_equipment = Equipment.query.order_by(Equipment.code).all()
+        return render_template('pm_job_card_edit_form.html', 
+                               job_card=job_card,
+                               all_equipment=all_equipment,
+                               job_card_statuses=JOB_CARD_STATUSES,
+                               title=f'Edit JC {job_card.job_number}')
+    
+    # GET Request - Display the edit form
+    all_equipment = Equipment.query.order_by(Equipment.code).all()
+    return render_template('pm_job_card_edit_form.html', 
+                           job_card=job_card,
+                           all_equipment=all_equipment,
+                           job_card_statuses=JOB_CARD_STATUSES,
+                           title=f'Edit JC {job_card.job_number}')
+
+@bp.route('/job_card/print/<int:id>')
+def print_job_card(id):
+    """Displays a printable version of a job card."""
+    logging.debug(f"--- Request to print Job Card ID: {id} ---")
+    try:
+        # Fetch the job card with eager loading of related data
+        # Modified to correctly handle the parts relationship
+        job_card = JobCard.query.options(
+            db.joinedload(JobCard.equipment_ref)
+        ).get_or_404(id)
+
+        logging.debug(f"Preparing print view for Job Card: {job_card.job_number}")
+
+        # Render the print template
+        return render_template(
+            'pm_job_card_print.html',
+            job_card=job_card,
+            now=datetime.now(),
+            title=f"Print Job Card {job_card.job_number}"
+        )
+
+    except Exception as e:
+        logging.error(f"--- Error loading print view for Job Card ID {id}: {e} ---", exc_info=True)
+        flash(f"An error occurred while preparing the print view: {e}", "danger")
+        # Redirect to job card detail view on error
+        return redirect(url_for('planned_maintenance.job_card_detail', id=id))
+
+@bp.route('/job_card/delete/<int:id>', methods=['POST'])
+def delete_job_card(id):
+    """Soft-deletes a job card by changing its status to 'Deleted' and logging the reason."""
+    job_card = JobCard.query.get_or_404(id)
+    
+    # Only allow deletion of job cards with 'To Do' status
+    if job_card.status != 'To Do':
+        flash(f"Cannot delete job card {job_card.job_number}. Only job cards with 'To Do' status can be deleted.", "warning")
+        return redirect(url_for('planned_maintenance.job_card_detail', id=id))
+        
+    if job_card.status == 'Deleted':
+        flash(f"Job card {job_card.job_number} is already deleted.", "warning")
+        return redirect(url_for('planned_maintenance.job_card_list'))
+    
+    # Get the deletion reason from the form
+    delete_reason = request.form.get('delete_reason', '').strip()
+    if not delete_reason:
+        flash("Please provide a reason for deletion.", "warning")
+        return redirect(url_for('planned_maintenance.job_card_detail', id=id))
+    
+    try:
+        # Update the job card status and add the deletion reason to comments
+        original_status = job_card.status
+        
+        # Prepare deletion comment
+        deletion_comment = f"[DELETED on {datetime.now().strftime('%Y-%m-%d %H:%M')}]\nPrevious status: {original_status}\nReason: {delete_reason}"
+        
+        # Update job card
+        job_card.status = 'Deleted'
+        
+        # Append to existing comments or create new
+        if job_card.comments:
+            job_card.comments = f"{job_card.comments}\n\n{deletion_comment}"
+        else:
+            job_card.comments = deletion_comment
+        
+        db.session.commit()
+        logging.info(f"Job Card {job_card.job_number} (ID: {id}) has been soft-deleted. Previous status: {original_status}")
+        
+        flash(f"Job Card {job_card.job_number} has been successfully deleted.", "success")
+        return redirect(url_for('planned_maintenance.job_card_list'))
+        
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error deleting Job Card {id}: {e}", exc_info=True)
+        flash(f"Error deleting job card: {e}", "danger")
+        return redirect(url_for('planned_maintenance.job_card_detail', id=id))
 
 # ==============================================================================
 # === Check Lists ===

@@ -183,7 +183,7 @@
 
     <!-- Action Buttons -->
     <div class="mb-5 d-flex gap-2">
-        {% if job_card.status != 'Done' %}
+        {% if job_card.status != 'Done' and job_card.status != 'Deleted' %}
             <a href="{{ url_for('planned_maintenance.edit_job_card', id=job_card.id) }}" class="btn btn-primary">
                 <i class="bi bi-pencil me-1"></i> Edit Job Card
             </a>
@@ -191,7 +191,10 @@
                 <i class="bi bi-check-circle me-1"></i> Complete Job
             </a>
         {% endif %}
-        
+            <!-- Print Button - always available -->
+        <a href="{{ url_for('planned_maintenance.print_job_card', id=job_card.id) }}" class="btn btn-info">
+            <i class="bi bi-printer me-1"></i> Print
+        </a>
         <!-- Share Button -->
         {% set whatsapp_url = None %}
         {% if whatsapp_url %}
@@ -199,34 +202,23 @@
                 <i class="bi bi-whatsapp me-1"></i> Share via WhatsApp
             </a>
         {% endif %}
-        
-        {% if job_card.status != 'Done' %}
-            <button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteJobCardModal">
+        <!-- Delete Button - only for 'To Do' status jobs -->
+        {% if job_card.status == 'To Do' %}
+            <button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteJobCardModal-{{ job_card.id }}">
                 <i class="bi bi-trash me-1"></i> Delete
             </button>
             
-            <!-- Delete Confirmation Modal -->
-            <div class="modal fade" id="deleteJobCardModal" tabindex="-1" aria-labelledby="deleteJobCardModalLabel" aria-hidden="true">
-                <div class="modal-dialog">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title" id="deleteJobCardModalLabel">Confirm Delete</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                        </div>
-                        <div class="modal-body">
-                            Are you sure you want to delete job card #{{ job_card.job_number }}?
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                            <form action="{{ url_for('planned_maintenance.delete_job_card', id=job_card.id) }}" method="POST">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
-                                <button type="submit" class="btn btn-danger">Delete</button>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <!-- Include the delete confirmation modal -->
+            {% include 'delete_job_card_modal.html' %}
         {% endif %}
+        
     </div>
+    {# Add a status badge/banner for Deleted job cards #}
+    {% if job_card.status == 'Deleted' %}
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+            <strong>This job card has been deleted.</strong> It is retained for record-keeping purposes only.
+        </div>
+    {% endif %}
 </div>
 {% endblock %}

@@ -1,0 +1,36 @@
+{# delete_job_card_modal.html #}
+{# This template contains the modal dialog for confirming job card deletion #}
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteJobCardModal-{{ job_card.id }}" tabindex="-1" 
+     aria-labelledby="deleteJobCardModalLabel-{{ job_card.id }}" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteJobCardModalLabel-{{ job_card.id }}">
+                    <i class="bi bi-trash me-2"></i>Confirm Delete
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="{{ url_for('planned_maintenance.delete_job_card', id=job_card.id) }}" method="POST">
+                <div class="modal-body">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                    
+                    <p>Are you sure you want to delete job card <strong>#{{ job_card.job_number }}</strong>?</p>
+                    <p class="text-muted small">Note: The job card will be marked as "Deleted" but will remain in the system for record-keeping.</p>
+                    
+                    <div class="mb-3">
+                        <label for="delete_reason" class="form-label">Reason for Deletion <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="delete_reason" name="delete_reason" rows="3" required placeholder="Please provide a reason for deleting this job card..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger">
+                        <i class="bi bi-trash me-1"></i> Delete Job Card
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
