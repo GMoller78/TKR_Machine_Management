@@ -1,9 +1,11 @@
+
 import logging
 # Corrected Flask imports
 from flask import render_template, request, redirect, url_for, flash, make_response, session, jsonify
 from urllib.parse import urlencode
 # Corrected datetime imports
 from datetime import datetime, timedelta, timezone, date, time
+# <<< ADDED: dateutil.parser for flexible datetime string parsing >>>
 from dateutil.parser import parse as parse_datetime
 from dateutil.relativedelta import relativedelta
 from calendar import monthrange
@@ -147,7 +149,7 @@ def predict_task_due_dates_in_range(task, start_date, end_date):
                       # Find number like "~5.2 days" or "~10 days"
                       numeric_part = ''.join(filter(lambda x: x.isdigit() or x == '.', est_days_info.split('~')[-1].split(' ')[0]))
                       estimated_days_until = float(numeric_part)
-                      
+
                       # Calculate the estimated due date based on *today*
                       estimated_due_date = (current_time + timedelta(days=estimated_days_until)).date()
 
@@ -232,11 +234,11 @@ def generate_maintenance_plan():
 
             if predicted_dates:
                  is_estimate_flag = task.interval_type in ['hours', 'km'] # Mark estimates
-                 for due_date in predicted_dates:
+                 for due_date_val in predicted_dates: # Renamed variable to avoid clash
                      entry = MaintenancePlanEntry(
                          equipment_id=task.equipment_id,
                          task_description=task.description, # Store description
-                         planned_date=due_date,             # Store the specific date
+                         planned_date=due_date_val,             # Store the specific date
                          interval_type=task.interval_type,  # Store type at generation
                          is_estimate=is_estimate_flag,
                          generated_at=generation_time,
@@ -274,9 +276,9 @@ def maintenance_plan_pdf():
         # 1. Get Target Month/Year from Query Parameters
         try:
             # Default to current month if not specified
-            default_date = date.today()
-            year = request.args.get('year', default=default_date.year, type=int)
-            month = request.args.get('month', default=default_date.month, type=int)
+            default_date_val = date.today() # Renamed variable
+            year = request.args.get('year', default=default_date_val.year, type=int)
+            month = request.args.get('month', default=default_date_val.month, type=int)
 
             if not (1 <= month <= 12): raise ValueError("Month out of range")
             current_year = datetime.utcnow().year
@@ -284,9 +286,9 @@ def maintenance_plan_pdf():
 
         except (ValueError, TypeError):
             flash("Invalid or missing year/month for PDF plan. Defaulting to current month.", "warning")
-            default_date = date.today()
-            year = default_date.year
-            month = default_date.month
+            default_date_val = date.today() # Renamed variable
+            year = default_date_val.year
+            month = default_date_val.month
 
         # Calculate Date Range and Month Name
         try:
@@ -328,17 +330,17 @@ def maintenance_plan_pdf():
 
             for entry in plan_entries:
                 eq_id = entry.equipment_id
-                due_date = entry.planned_date # Already a date object
+                due_date_val = entry.planned_date # Already a date object
 
                 if eq_id not in plan_data:
                     plan_data[eq_id] = {}
-                if due_date not in plan_data[eq_id]:
-                    plan_data[eq_id][due_date] = []
+                if due_date_val not in plan_data[eq_id]:
+                    plan_data[eq_id][due_date_val] = []
 
                 task_label = entry.task_description
                 if entry.is_estimate:
                     task_label += " (Est.)"
-                plan_data[eq_id][due_date].append(task_label)
+                plan_data[eq_id][due_date_val].append(task_label)
 
         # Generate list of dates for the header
         dates_in_month = [plan_start_date + timedelta(days=d) for d in range(days_in_month)]
@@ -410,9 +412,9 @@ def maintenance_plan_list_view():
                 'generated_at': generated_str
             })
 
-        today = date.today()
-        current_year=today.year
-        current_month=today.month
+        today_val = date.today() # Renamed variable
+        current_year=today_val.year
+        current_month=today_val.month
 
         logging.debug(f"Found {len(existing_plans)} existing plan periods.")
 
@@ -422,7 +424,7 @@ def maintenance_plan_list_view():
             existing_plans=existing_plans,
             current_year=current_year,
             current_month=current_month,
-            date_today=today, # Pass today's date for form defaults
+            date_today=today_val, # Pass today's date for form defaults
             WEASYPRINT_AVAILABLE = WEASYPRINT_AVAILABLE # Pass PDF availability flag
         )
 
@@ -662,13 +664,13 @@ def dashboard():
                 continue # Skip tasks for sold equipment
 
             # Calculate detailed status using the helper function
-            status, due_info, due_date, last_performed_info, next_due_info, estimated_days_info = \
+            status, due_info, due_date_val, last_performed_info, next_due_info, estimated_days_info = \
                 calculate_task_due_status(task, current_time) # Assumes this helper exists and works
 
             # Assign calculated attributes to the task object for template use
             task.due_status = status
             task.due_info = due_info
-            task.due_date = due_date # This is the datetime object or None
+            task.due_date = due_date_val # This is the datetime object or None
             task.last_performed_info = last_performed_info
             task.next_due_info = next_due_info
             task.estimated_days_info = estimated_days_info
@@ -866,7 +868,7 @@ def add_equipment():
     """Processes the form submission for adding new equipment."""
     code = request.form.get('code', '').strip()
     name = request.form.get('name', '').strip()
-    type = request.form.get('type')
+    type_val = request.form.get('type') # Renamed variable
     checklist_required = 'checklist_required' in request.form
     status = request.form.get('status', 'Operational') # Default if not sent
 
@@ -874,7 +876,7 @@ def add_equipment():
     current_data_for_redirect = {
         'code': code,
         'name': name,
-        'type': type,
+        'type': type_val,
         'checklist_required': 'true' if checklist_required else 'false', # Pass as string
         'status': status
     }
@@ -890,7 +892,7 @@ def add_equipment():
     if not name:
         flash('Equipment Name is required.', 'warning')
         errors = True
-    if not type:
+    if not type_val:
         flash('Equipment Type is required.', 'warning')
         errors = True
     if status not in EQUIPMENT_STATUSES:
@@ -913,7 +915,7 @@ def add_equipment():
         new_equipment = Equipment(
             code=code,
             name=name,
-            type=type,
+            type=type_val,
             checklist_required=checklist_required,
             status=status # Add the status
         )
@@ -1031,43 +1033,31 @@ def job_card_list():
         start_date_str = request.args.get('start_date', '')
         end_date_str = request.args.get('end_date', '')
 
-        # Equipment - Expecting a list of IDs from multi-select
+        # Equipment search - Text-based search
         equipment_search_term = request.args.get('equipment_search', '').strip() # Get text and strip whitespace
 
         # Status - Allow 'All' or specific status
         status_filter = request.args.get('status', 'All') # Default to 'All'
 
         # Convert filter values
-        start_date = None
-        end_date = None
-        equipment_ids = []
+        start_date_val = None # Renamed variable
+        end_date_val = None   # Renamed variable
 
         if start_date_str:
             try:
-                start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+                start_date_val = datetime.strptime(start_date_str, '%Y-%m-%d').date()
             except ValueError:
                 flash(f"Invalid start date format: {start_date_str}. Please use YYYY-MM-DD.", "warning")
         if end_date_str:
             try:
-                end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                end_date_val = datetime.strptime(end_date_str, '%Y-%m-%d').date()
                  # Make end_date inclusive by setting time to end of day for datetime comparison if needed
                  # If comparing date columns directly, this isn't strictly necessary.
                  # end_date_dt = datetime.combine(end_date, time.max)
             except ValueError:
                 flash(f"Invalid end date format: {end_date_str}. Please use YYYY-MM-DD.", "warning")
 
-        if equipment_search_term:
-            search_pattern = f"%{equipment_search_term}%"
-            # We need to filter based on the joined Equipment table
-            # The joinedload above ensures Equipment is available for filtering
-            query = query.join(JobCard.equipment_ref).filter( # Explicit join might be safer here
-                or_(
-                    Equipment.code.ilike(search_pattern),
-                    Equipment.name.ilike(search_pattern)
-                )
-            )
-
-        logging.debug(f"Filters - Start: {start_date}, End: {end_date}, Equip IDs: {equipment_ids}, Status: {status_filter}, Page: {page}")
+        logging.debug(f"Filters - Start: {start_date_val}, End: {end_date_val}, Equip Search: '{equipment_search_term}', Status: {status_filter}, Page: {page}")
 
         # 2. Build Base Query
         query = JobCard.query.options(
@@ -1075,16 +1065,25 @@ def job_card_list():
         )
 
         # 3. Apply Filters
-        if start_date:
+        if start_date_val:
             # Filter where due_date is on or after start_date
-            query = query.filter(JobCard.due_date >= start_date)
-        if end_date:
+            query = query.filter(JobCard.due_date >= start_date_val)
+        if end_date_val:
             # Filter where due_date is on or before end_date
-            query = query.filter(JobCard.due_date <= end_date)
+            query = query.filter(JobCard.due_date <= end_date_val)
             # Alternative for created_at: query = query.filter(JobCard.created_at <= end_date_dt)
 
-        if equipment_ids:
-            query = query.filter(JobCard.equipment_id.in_(equipment_ids))
+        # Apply equipment search filter *after* the join is guaranteed (by options/join)
+        if equipment_search_term:
+            search_pattern = f"%{equipment_search_term}%"
+            # Filter based on the joined Equipment table
+            # Explicit join might be slightly clearer but joinedload should work
+            query = query.join(JobCard.equipment_ref).filter(
+                or_(
+                    Equipment.code.ilike(search_pattern),
+                    Equipment.name.ilike(search_pattern)
+                )
+            )
 
         if status_filter and status_filter != 'All' and status_filter in JOB_CARD_STATUSES:
             query = query.filter(JobCard.status == status_filter)
@@ -1100,14 +1099,14 @@ def job_card_list():
         for jc in job_cards_page:
             jc.whatsapp_share_url = generate_whatsapp_share_url(jc)
 
-        # 7. Fetch Data for Filter Dropdowns
+        # 7. Fetch Data for Filter Dropdowns (no change needed here)
         all_equipment = Equipment.query.order_by(Equipment.code).all()
 
         # 8. Store filter values for repopulating the form
         current_filters = {
             'start_date': start_date_str,
             'end_date': end_date_str,
-            'equipment_ids': equipment_ids, # Pass list of ints
+            'equipment_search': equipment_search_term, # Pass back the search term
             'status': status_filter
         }
 
@@ -1250,9 +1249,9 @@ def complete_job_card(id):
             for part_id_s, qty_s in zip_longest(part_ids_str, quantities_str):
                 if not part_id_s or not qty_s: continue
                 try:
-                     part_id = int(part_id_s)
+                     part_id_val = int(part_id_s) # Renamed variable
                      quantity = int(qty_s)
-                     if quantity > 0: parts_to_process.append({'id': part_id, 'qty': quantity})
+                     if quantity > 0: parts_to_process.append({'id': part_id_val, 'qty': quantity})
                      elif quantity <=0: logging.warning(f"Skipping part {part_id_s} with non-positive quantity {qty_s}")
                 except ValueError:
                      logging.warning(f"Invalid part_id '{part_id_s}' or quantity '{qty_s}'. Skipping row.")
@@ -1290,15 +1289,24 @@ def complete_job_card(id):
 
             if task:
                 # Update last performed timestamp
-                task.last_performed = checkin_datetime # Assign naive checkin time
-                logging.debug(f"Updating task {task.id} last_performed to {checkin_datetime} ({checkin_datetime.tzinfo})")
+                # <<< MAKE UTC AWARE BEFORE STORING >>>
+                checkin_datetime_utc = checkin_datetime # Start with naive
+                if checkin_datetime_utc.tzinfo is None:
+                    # Assume the naive time represents UTC, make it aware
+                    checkin_datetime_utc = checkin_datetime_utc.replace(tzinfo=timezone.utc)
+                else:
+                     # If already aware (e.g. from parse_datetime heuristic), convert to UTC
+                    checkin_datetime_utc = checkin_datetime_utc.astimezone(timezone.utc)
+
+                task.last_performed = checkin_datetime_utc # Assign UTC-aware checkin time
+                logging.debug(f"Updating task {task.id} last_performed to {checkin_datetime_utc} ({checkin_datetime_utc.tzinfo})")
 
                 # --- NEW: Update last performed usage value for hours/km tasks ---
                 if task.interval_type in ['hours', 'km']:
-                    # Find the latest usage log AT OR BEFORE the check-in time
+                    # Find the latest usage log AT OR BEFORE the check-in time (use UTC aware time for comparison)
                     usage_at_completion = UsageLog.query.filter(
                         UsageLog.equipment_id == task.equipment_id,
-                        UsageLog.log_date <= checkin_datetime # Crucial filter condition
+                        UsageLog.log_date <= checkin_datetime_utc # Crucial filter condition (compare aware with aware/naive correctly)
                     ).order_by(desc(UsageLog.log_date)).first()
 
                     if usage_at_completion:
@@ -1307,7 +1315,7 @@ def complete_job_card(id):
                     else:
                         # Handle case where no usage log exists before or at check-in
                         task.last_performed_usage_value = None # Set to None if unknown
-                        logging.warning(f"Could not find usage log at or before {checkin_datetime} for task {task.id} completion. last_performed_usage_value set to None.")
+                        logging.warning(f"Could not find usage log at or before {checkin_datetime_utc} for task {task.id} completion. last_performed_usage_value set to None.")
                 else:
                     # For 'days' tasks, the usage value isn't relevant
                     task.last_performed_usage_value = None
@@ -1323,6 +1331,7 @@ def complete_job_card(id):
             # --- WhatsApp Message Generation (remains the same) ---
             equipment_name = job_card.equipment_ref.name or 'Unknown Equipment'
             parts_str = "\n".join(parts_summary) if parts_summary else "No parts used."
+            # Display naive time in WhatsApp for simplicity/local context?
             checkout_str = checkout_datetime.strftime('%Y-%m-%d %H:%M') if checkout_datetime else "N/A"
             checkin_str = checkin_datetime.strftime('%Y-%m-%d %H:%M') if checkin_datetime else "N/A"
             whatsapp_msg = (
@@ -1341,7 +1350,8 @@ def complete_job_card(id):
             if send_whatsapp:
                 encoded_msg = urlencode({'text': whatsapp_msg})
                 whatsapp_url = f"https://wa.me/?{encoded_msg}"
-                flash(f'Job Card {job_card.job_number} completed. Redirecting to detail view before WhatsApp.', 'success')
+                # Redirecting to detail view first makes more sense
+                flash(f'Job Card {job_card.job_number} completed. Click <a href="{whatsapp_url}" target="_blank">here</a> to share via WhatsApp.', 'success')
                 return redirect(url_for('planned_maintenance.job_card_detail', id=job_card.id))
             else:
                 flash(f'Job Card {job_card.job_number} completed successfully!', 'success')
@@ -1371,72 +1381,11 @@ def complete_job_card(id):
                          parts=parts_for_dropdown,
                          title=f'Complete JC {job_card.job_number}')
 
-@bp.route('/job_card/new', methods=['POST'])
-def new_job_card():
-    try:
-        equipment_id = request.form.get('equipment_id')
-        description = request.form.get('description')
-        technician = request.form.get('technician')
-        oem_required = 'oem_required' in request.form
-        kit_required = 'kit_required' in request.form
-        send_whatsapp = 'send_whatsapp' in request.form
-        due_date_str = request.form.get('due_date')  # New field
-
-        if not equipment_id or not description:
-            flash('Equipment and Description are required for a Job Card.', 'warning')
-            return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
-
-        due_date = None
-        if due_date_str:
-            try:
-                due_date = parse_datetime(due_date_str)
-                logging.debug(f"New JC due_date parsed: {due_date} ({due_date.tzinfo})")
-            except ValueError:
-                flash('Invalid due date format.', 'warning')
-                return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
-
-        year = datetime.now(timezone.utc).year
-        count = JobCard.query.count() + 1
-        job_number = f"JC-{year}-{count:04d}"
-
-        job_card = JobCard(
-            job_number=job_number,
-            equipment_id=int(equipment_id),
-            description=description,
-            technician=technician,
-            status='To Do',
-            oem_required=oem_required,
-            kit_required=kit_required,
-            due_date=due_date  # Save the due date
-        )
-        db.session.add(job_card)
-        db.session.commit()
-
-        equipment_name = Equipment.query.get(int(equipment_id)).name or 'Unknown Equipment'
-        whatsapp_msg = (
-            f"Job Card #{job_number} created:\n"
-            f"Equipment: {equipment_name}\n"
-            f"Task: {description}\n"
-            f"Assigned: {technician or 'Unassigned'}\n"
-            f"OEM Required: {'Yes' if oem_required else 'No'}\n"
-            f"Kit Required: {'Yes' if kit_required else 'No'}\n"
-            f"Due Date: {due_date.strftime('%Y-%m-%d') if due_date else 'Not Set'}"
-        )
-        
-        flash(f'Job Card {job_number} created!', 'success')
-        
-        if send_whatsapp:
-            encoded_msg = urlencode({'text': whatsapp_msg})
-            whatsapp_url = f"https://wa.me/?{encoded_msg}"
-            flash('Click the WhatsApp link to share the job card.', 'info')
-            return redirect(whatsapp_url)
-        
-        return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
-
-    except Exception as e:
-        db.session.rollback()
-        flash(f"Error creating job card: {e}", "danger")
-        return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
+# Route deprecated - use create_job_card instead
+#@bp.route('/job_card/new', methods=['POST'])
+#def new_job_card():
+#    # ... (keep logic if needed for specific reason, otherwise remove)
+#    pass
 
 @bp.route('/job_card/create', methods=['POST'])
 def create_job_card():
@@ -1473,13 +1422,15 @@ def create_job_card():
             flash('Task Description is required.', 'danger')
             errors = True
 
-        due_date = None
+        due_date_dt = None # Use dt suffix for datetime object
         if due_date_str:
             try:
                 # Parse date string only, combine with min time for naive datetime
                 due_date_only = datetime.strptime(due_date_str, '%Y-%m-%d').date()
-                due_date = datetime.combine(due_date_only, time.min)
-                logging.debug(f"Parsed due_date: {due_date}")
+                due_date_dt = datetime.combine(due_date_only, time.min) # Naive datetime
+                # Make UTC aware for consistency if needed, but date column might handle it
+                # due_date_dt = due_date_dt.replace(tzinfo=timezone.utc)
+                logging.debug(f"Parsed due_date: {due_date_dt}")
             except ValueError:
                 flash('Invalid Due Date format. Please use YYYY-MM-DD.', 'warning')
                 # Decide if this is a fatal error or just ignore the date
@@ -1491,6 +1442,7 @@ def create_job_card():
              # Consider returning a JSON error or using HTMX/AJAX for better modal error handling later.
              # For now, redirecting to the list view might be the simplest fallback.
             logging.warning("Validation errors encountered during Job Card creation.")
+            # Redirect back to the page that opened the modal if possible
             return redirect(request.referrer or url_for('planned_maintenance.job_card_list'))
 
         # 3. Generate Job Number
@@ -1506,7 +1458,7 @@ def create_job_card():
             status='To Do', # Default status for new cards
             oem_required=oem_required,
             kit_required=kit_required,
-            due_date=due_date,
+            due_date=due_date_dt, # Store the datetime object (or None)
             # start_datetime, end_datetime, comments are null by default
         )
 
@@ -1527,13 +1479,13 @@ def create_job_card():
                 # Option 1: Redirect directly
                 # return redirect(whatsapp_url)
 
-                # Option 2: Flash and redirect normally
-                 flash(f'Share Job Card {job_number} via WhatsApp if needed.', 'info') # Use info level
-                 # Store URL in session to show button on next page? (More complex)
+                # Option 2: Flash and redirect normally (better UX)
+                 flash(f'Click <a href="{whatsapp_url}" target="_blank">here</a> to share Job Card {job_number} via WhatsApp.', 'info') # Use info level, add link
             else:
                 flash('Could not generate WhatsApp link.', 'warning')
 
-        # 7. Redirect to the Job Card List view
+        # 7. Redirect to the Job Card List view (or referrer)
+        # Prefer redirecting to the list so user sees the new card
         return redirect(url_for('planned_maintenance.job_card_list'))
 
     except Exception as e:
@@ -1548,16 +1500,18 @@ def create_job_card():
 @bp.route('/checklist/new', methods=['POST'])
 def new_checklist():
     """Logs a new equipment checklist."""
-    # This route expects the form to be included elsewhere (e.g., dashboard)
+    # This route expects the form to be included elsewhere (e.g., dashboard modal)
     if request.method == 'POST':
         try:
             equipment_id = request.form.get('equipment_id', type=int)
             status = request.form.get('status')
             issues = request.form.get('issues') # Optional
+            # *** Get the new date/time string ***
+            check_date_str = request.form.get('check_date')
 
-            # Basic Validation
-            if not equipment_id or not status:
-                flash('Equipment and Status are required for checklist.', 'warning')
+            # *** Updated Validation ***
+            if not equipment_id or not status or not check_date_str:
+                flash('Equipment, Status, and Check Date/Time are required for checklist.', 'warning')
                 return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
             # Validate status value
@@ -1566,32 +1520,50 @@ def new_checklist():
                 flash(f'Invalid status "{status}" selected.', 'warning')
                 return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
+            # *** Parse and Validate Date/Time ***
+            try:
+                # Parse the string from datetime-local input (usually ISO format without Z)
+                parsed_dt = parse_datetime(check_date_str)
+                # Assume the naive datetime represents UTC time, make it timezone-aware
+                check_date_utc = parsed_dt.replace(tzinfo=timezone.utc)
+                logging.debug(f"Parsed check date string '{check_date_str}' to naive {parsed_dt}, assumed UTC: {check_date_utc} ({check_date_utc.tzinfo})")
+            except ValueError:
+                flash("Invalid Check Date/Time format submitted.", "warning")
+                return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
+            except Exception as parse_err: # Catch other potential parsing errors
+                logging.error(f"Error parsing check_date '{check_date_str}': {parse_err}", exc_info=True)
+                flash(f"Error parsing check date: {parse_err}", "danger")
+                return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
+
             equipment = Equipment.query.get(equipment_id)
             if not equipment:
                  flash('Selected equipment not found.', 'danger')
                  return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
-            # Create checklist entry
+            # Create checklist entry using the parsed date
             new_log = Checklist(
                 equipment_id=equipment_id,
                 status=status,
                 issues=issues,
-                check_date=datetime.now(timezone.utc) # Log time automatically
+                check_date=check_date_utc # Use the parsed and UTC-aware datetime
             )
-            logging.debug(f"New checklist check_date: {new_log.check_date} ({new_log.check_date.tzinfo})")
             db.session.add(new_log)
             db.session.commit()
-            flash(f'Checklist logged successfully for {equipment.name} with status "{status}".', 'success')
+            flash(f'Checklist logged successfully for {equipment.name} with status "{status}" at {check_date_utc.strftime("%Y-%m-%d %H:%M UTC")}.', 'success')
 
         except Exception as e:
             db.session.rollback()
+            logging.error(f"Error logging checklist: {e}", exc_info=True) # Log the full error
             flash(f"Error logging checklist: {e}", "danger")
 
-        return redirect(url_for('planned_maintenance.dashboard'))
-    
+        return redirect(request.referrer or url_for('planned_maintenance.dashboard')) # Redirect back to where the form was
+
     # If accessed via GET, just redirect away
     return redirect(url_for('planned_maintenance.dashboard'))
 
+# ==============================================================================
+# === Task Status Calculation ===
+# ==============================================================================
 def calculate_task_due_status(task, current_time): # Accept current_time (naive UTC)
     logging.debug(f"    Calculating status for Task {task.id} ({task.description}) for Eq {task.equipment_id}. current_time = {current_time}")
     # Initialize return values with defaults
@@ -1613,7 +1585,7 @@ def calculate_task_due_status(task, current_time): # Accept current_time (naive 
     if last_performed_dt and last_performed_dt.tzinfo is not None:
         last_performed_dt = last_performed_dt.astimezone(timezone.utc).replace(tzinfo=None)
     # Update last_performed_info based on processed last_performed_dt
-    last_performed_info = last_performed_dt.strftime('%Y-%m-%d') if last_performed_dt else "Never"
+    last_performed_info = last_performed_dt.strftime('%Y-%m-%d %H:%M') if last_performed_dt else "Never"
 
 
     # ================== HOURS / KM LOGIC ==================
@@ -1666,14 +1638,14 @@ def calculate_task_due_status(task, current_time): # Accept current_time (naive 
         if last_performed_usage is None: # Usage unknown at last performance
              status = f"Warning (Usage at Last Done Unknown)"
              # Update last_performed_info specifically for this case
-             last_performed_info = f"{last_performed_dt.strftime('%Y-%m-%d')} (Usage Unknown)"
+             last_performed_info = f"{last_performed_dt.strftime('%Y-%m-%d %H:%M')} (Usage Unknown)"
              next_due_info = "Cannot Calculate"; estimated_days_info = "Cannot Calculate"
              # Return, ensuring due_date is None
              return status, due_info, None, last_performed_info, next_due_info, estimated_days_info
 
         # We know last_performed_usage exists
         # Update last_performed_info with known usage
-        last_performed_info = f"{last_performed_dt.strftime('%Y-%m-%d')} at {last_performed_usage:.1f} {interval_unit}"
+        last_performed_info = f"{last_performed_dt.strftime('%Y-%m-%d %H:%M')} at {last_performed_usage:.1f} {interval_unit}"
 
         # 4. Calculate key metrics
         next_due_at_usage = last_performed_usage + task.interval_value
@@ -1809,6 +1781,9 @@ def calculate_task_due_status(task, current_time): # Accept current_time (naive 
         # Return, due_date remains None
         return status, due_info, None, last_performed_info, next_due_info, estimated_days_info
 
+# ==============================================================================
+# === Tasks List ===
+# ==============================================================================
 @bp.route('/tasks', methods=['GET'])
 def tasks_list():
     logging.debug("--- Entering tasks_list route ---")
@@ -1831,11 +1806,11 @@ def tasks_list():
                 continue
             eq_key = (task.equipment_ref.code, task.equipment_ref.name, task.equipment_ref.type)
             # Calculate status and add attributes directly to the task object
-            status, due_info, due_date, last_performed_info, next_due_info, estimated_days_info = \
+            status, due_info, due_date_val, last_performed_info, next_due_info, estimated_days_info = \
                 calculate_task_due_status(task, current_time_for_list)
             task.due_status = status # Store the full status string
             task.due_info = due_info
-            task.due_date = due_date
+            task.due_date = due_date_val
             task.last_performed_info = last_performed_info
             task.next_due_info = next_due_info
             task.estimated_days_info = estimated_days_info
@@ -1975,6 +1950,9 @@ def tasks_list():
                                title='Maintenance Tasks',
                                error=True)
 
+# ==============================================================================
+# === Add/Edit Task ===
+# ==============================================================================
 @bp.route('/task/add', methods=['GET', 'POST'])
 def add_task():
     """Displays form to add a new task (GET) or processes addition (POST)."""
@@ -1993,7 +1971,7 @@ def add_task():
             if not description: errors.append("Description is required.")
             if not interval_type: errors.append("Interval Type is required.")
             if not interval_value_str: errors.append("Interval Value is required.")
-            
+
             interval_value = 0
             if interval_value_str:
                 try:
@@ -2036,16 +2014,16 @@ def add_task():
     except Exception as e:
         flash(f"Error loading equipment list for form: {e}", "danger")
         equipment_list = []
-    
+
     return render_template('pm_task_form.html', equipment=equipment_list, title="Add New Task")
 
-# --- Usage Log (Needed for Task Status - Add if not present) ---
-# Simple route to add usage logs manually for testing task status
+# ==============================================================================
+# === Usage Log ===
+# ==============================================================================
 @bp.route('/usage/add', methods=['POST'])
 def add_usage():
-     
-     """Adds a usage log entry."""
-     if request.method == 'POST':
+    """Adds a usage log entry."""
+    if request.method == 'POST':
         try:
             equipment_id = request.form.get('equipment_id', type=int)
             usage_value_str = request.form.get('usage_value')
@@ -2054,34 +2032,45 @@ def add_usage():
             if not equipment_id or not usage_value_str:
                 flash("Equipment and Usage Value are required.", "warning")
                 return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
-                
+
             try:
                 usage_value = float(usage_value_str)
             except ValueError:
                  flash("Invalid Usage Value.", "warning")
                  return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
-            log_date = datetime.now(timezone.utc)
+            log_date_dt = datetime.now(timezone.utc) # Default to now (UTC)
             if log_date_str:
                 try:
-                    log_date = parse_datetime(log_date_str)
+                    # Parse naive datetime from input
+                    parsed_naive = parse_datetime(log_date_str)
+                    # Assume it represents UTC and make it aware
+                    log_date_dt = parsed_naive.replace(tzinfo=timezone.utc)
+                    logging.debug(f"Parsed usage log_date string '{log_date_str}' to naive {parsed_naive}, assumed UTC: {log_date_dt} ({log_date_dt.tzinfo})")
                 except ValueError:
-                    flash("Invalid Log Date format, using current time.", "info")
-            logging.debug(f"Adding usage log_date: {log_date} ({log_date.tzinfo})")
-            usage = UsageLog(equipment_id=equipment_id, usage_value=usage_value, log_date=log_date)
+                    flash("Invalid Log Date format, using current UTC time.", "info")
+                except Exception as parse_err:
+                    logging.error(f"Error parsing usage log_date '{log_date_str}': {parse_err}", exc_info=True)
+                    flash(f"Error parsing log date: {parse_err}. Using current UTC time.", "warning")
+
+            usage = UsageLog(equipment_id=equipment_id, usage_value=usage_value, log_date=log_date_dt)
             db.session.add(usage)
             db.session.commit()
             flash("Usage log added successfully.", "success")
 
         except Exception as e:
             db.session.rollback()
+            logging.error(f"Error adding usage log: {e}", exc_info=True) # Log error details
             flash(f"Error adding usage log: {e}", "danger")
-            
-        return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
-        
-     # If accessed via GET, just redirect away
-     return redirect(url_for('planned_maintenance.dashboard'))    
 
+        return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
+
+     # If accessed via GET, just redirect away
+    return redirect(url_for('planned_maintenance.dashboard'))
+
+# ==============================================================================
+# === Create Job Card From Task ===
+# ==============================================================================
 @bp.route('/job_card/new_from_task/<int:task_id>', methods=['POST'])
 def new_job_card_from_task(task_id):
     try:
@@ -2102,7 +2091,7 @@ def new_job_card_from_task(task_id):
             flash(f"Cannot create new job card. An open job card (#{existing_open_jc.job_number}) "
                   f"already exists for task '{task.description}' on equipment {task.equipment_ref.code}.",
                   "warning") # Use 'warning' or 'info' category
-            return redirect(url_for('planned_maintenance.dashboard'))
+            return redirect(request.referrer or url_for('planned_maintenance.dashboard')) # Redirect back
         # --- <<< END CHECK >>> ---
 
 
@@ -2110,6 +2099,7 @@ def new_job_card_from_task(task_id):
         due_date_dt = None # Initialize to None
         if due_date_str:
             try:
+                # Parse date only, combine with min time for naive datetime
                 parsed_date = datetime.strptime(due_date_str, '%Y-%m-%d').date()
                 due_date_dt = datetime.combine(parsed_date, time.min)
                 logging.debug(f"Parsed due_date_str '{due_date_str}' to datetime: {due_date_dt}")
@@ -2130,7 +2120,7 @@ def new_job_card_from_task(task_id):
             status='To Do',
             oem_required=task.oem_required,
             kit_required=task.kit_required,
-            due_date=due_date_dt
+            due_date=due_date_dt # Assign the parsed datetime object or None
         )
         db.session.add(job_card)
         db.session.commit()
@@ -2155,14 +2145,15 @@ def new_job_card_from_task(task_id):
         whatsapp_url = f"https://wa.me/?{encoded_msg}"
         # Decide whether to redirect to WhatsApp or dashboard
         # return redirect(whatsapp_url)
-        return redirect(url_for('planned_maintenance.dashboard')) # Redirect back to dash usually makes more sense
+        # Redirect back to originating page (dashboard or tasks list)
+        return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
 
     except Exception as e:
         db.session.rollback()
         logging.error(f"Error creating job card from task {task_id}: {e}", exc_info=True)
         flash(f"Error creating job card from task: {e}", "danger")
-        return redirect(url_for('planned_maintenance.dashboard'))
+        return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
 # --- Helper function (add this if it doesn't exist) ---
 def generate_next_job_number():
@@ -2181,29 +2172,82 @@ def generate_next_job_number():
     elif last_jc:
          logging.info(f"Last job card '{last_jc.job_number}' has different prefix. Starting new sequence for {prefix}.")
          next_num = 1
+    else: # No previous job cards at all
+         next_num = 1
 
     return f"{prefix}{next_num:04d}" # e.g., JC-24-0001
 
+# ==============================================================================
+# === Log Views ===
+# ==============================================================================
 @bp.route('/checklist_logs', methods=['GET'])
 def checklist_logs():
     """Displays checklist logs, optionally filtered by equipment."""
     equipment_id = request.args.get('equipment_id', type=int)
-    query = Checklist.query
+    query = Checklist.query.options(db.joinedload(Checklist.equipment_ref)) # Eager load
     if equipment_id:
         query = query.filter(Checklist.equipment_id == equipment_id)
+    # Order by check date descending
     logs = query.order_by(desc(Checklist.check_date)).all()
     equipment_list = Equipment.query.order_by(Equipment.name).all()
-    return render_template('pm_checklist_logs.html', logs=logs, equipment=equipment_list, equipment_id=equipment_id, title='Checklist Logs')
+    # Get selected equipment name if filtered
+    selected_equipment = Equipment.query.get(equipment_id) if equipment_id else None
+    return render_template('pm_checklist_logs.html',
+                           logs=logs,
+                           equipment_list=equipment_list, # Renamed for clarity
+                           selected_equipment_id=equipment_id, # Renamed for clarity
+                           selected_equipment=selected_equipment, # Pass the object too
+                           title='Checklist Logs')
 
 @bp.route('/usage_logs', methods=['GET'])
 def usage_logs():
-    type_filter = request.args.get('type')
-    name_filter = request.args.get('name')
-    query = UsageLog.query.join(Equipment)
-    if type_filter:
-        query = query.filter(Equipment.type == type_filter)
-    if name_filter:
-        query = query.filter(Equipment.name.ilike(f"%{name_filter}%"))
+    """Displays usage logs with filters."""
+    equipment_id_filter = request.args.get('equipment_id', type=int) # Filter by specific equipment ID
+    start_date_str = request.args.get('start_date')
+    end_date_str = request.args.get('end_date')
+
+    query = UsageLog.query.join(Equipment).options(db.joinedload(UsageLog.equipment_ref)) # Eager load
+
+    # Apply equipment filter
+    if equipment_id_filter:
+        query = query.filter(UsageLog.equipment_id == equipment_id_filter)
+
+    # Apply date filters
+    start_date_dt = None
+    if start_date_str:
+        try:
+            start_date_dt = datetime.strptime(start_date_str, '%Y-%m-%d')
+            # Make timezone aware (assuming UTC start of day) if log_date is aware
+            start_date_dt = start_date_dt.replace(tzinfo=timezone.utc)
+            query = query.filter(UsageLog.log_date >= start_date_dt)
+        except ValueError:
+            flash("Invalid start date format. Use YYYY-MM-DD.", "warning")
+
+    end_date_dt = None
+    if end_date_str:
+        try:
+            end_date_dt = datetime.strptime(end_date_str, '%Y-%m-%d')
+            # Make inclusive by going to end of day and making aware (assuming UTC)
+            end_date_dt = datetime.combine(end_date_dt.date(), time.max).replace(tzinfo=timezone.utc)
+            query = query.filter(UsageLog.log_date <= end_date_dt)
+        except ValueError:
+            flash("Invalid end date format. Use YYYY-MM-DD.", "warning")
+
+
+    # Fetch all equipment for the dropdown filter
+    all_equipment_list = Equipment.query.order_by(Equipment.code).all()
+
+    # Fetch the filtered logs
     logs = query.order_by(desc(UsageLog.log_date)).all()
-    types = Equipment.query.with_entities(Equipment.type).distinct().all()
-    return render_template('pm_usage_logs.html', logs=logs, types=[t[0] for t in types], type_filter=type_filter, name_filter=name_filter)    
+
+    # Get selected equipment name if filtered
+    selected_equipment = Equipment.query.get(equipment_id_filter) if equipment_id_filter else None
+
+    return render_template('pm_usage_logs.html',
+                           logs=logs,
+                           all_equipment=all_equipment_list, # Pass full list for dropdown
+                           selected_equipment_id=equipment_id_filter,
+                           selected_equipment=selected_equipment,
+                           start_date=start_date_str, # Pass back filter values
+                           end_date=end_date_str,
+                           title='Usage Logs')

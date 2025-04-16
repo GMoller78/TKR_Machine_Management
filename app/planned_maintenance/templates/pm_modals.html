@@ -1,3 +1,5 @@
+--- START OF FILE pm_modals.html ---
+
 {# tkr_system/app/templates/pm_modals.html #}
 <!-- Modals for Usage and Checklist Logging -->
 {% for eq in equipment %} {# Assume 'equipment' is passed to dashboard #}
@@ -59,6 +61,13 @@
                                     </div>
                                 </div>
                             </div>
+                            {# *** START NEW FIELD *** #}
+                            <div class="mb-3">
+                                <label for="check_date-{{ eq.id }}" class="form-label">Check Date & Time <span class="text-danger">*</span></label>
+                                <input type="datetime-local" class="form-control" id="check_date-{{ eq.id }}" name="check_date" required>
+                                <div class="form-text">Select the exact date and time the check was performed. Assumed to be UTC.</div>
+                            </div>
+                            {# *** END NEW FIELD *** #}
                             <div class="mb-3">
                                 <label for="issues-{{ eq.id }}" class="form-label">Issues Noted (Optional)</label>
                                 <textarea class="form-control" id="issues-{{ eq.id }}" name="issues" rows="2" placeholder="Describe any issues found..."></textarea>
@@ -71,7 +80,7 @@
         </div>
     {% endif %}
 
-    
+
 {% endfor %}
 
 {# Ensure 'all_equipment' variable is available in the context where this modal is included #}
@@ -163,3 +172,4 @@
     <!-- Warning: 'all_equipment' variable not passed to template context where pm_modals.html is included, cannot render New Job Card Modal -->
     <script>console.warn("Modal 'newJobCardModal' could not be rendered because 'all_equipment' was not defined in the template context.")</script>
 {% endif %}
+--- END OF FILE pm_modals.html ---
