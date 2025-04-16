@@ -153,6 +153,114 @@
                     <small>Shows tasks Overdue, Due Soon, or with Warnings. Log usage for accurate scheduling.</small>
                 </div>
             </div>
+            <!-- Legal Compliance Tasks (Due Soon / Overdue) -->
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center bg-info text-white">
+                    <span>Legal Compliance Tasks ({{ legal_tasks|length }})</span>
+                    <div>
+                        <a href="{{ url_for('planned_maintenance.legal_tasks_list') }}" class="btn btn-sm btn-light me-2">View All Legal Tasks</a>
+                        <a href="{{ url_for('planned_maintenance.add_legal_task') }}" class="btn btn-sm btn-light">Add Legal Task</a>
+                    </div>
+                </div>
+                <div class="card-body p-0" style="max-height: 400px; overflow-y: auto;">
+                    {% if legal_tasks %}
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover table-bordered mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 35%; vertical-align: middle;">Equipment & Task</th>
+                                        <th style="width: 40%; vertical-align: middle;">Scheduling Details</th>
+                                        <th style="width: 10%; vertical-align: middle;">Status</th>
+                                        <th style="width: 15%; vertical-align: middle;">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for task in legal_tasks %}
+                                        {% set row_color_class = '' %}
+                                        {% if 'Overdue' in task.due_status %}
+                                            {% set row_color_class = 'table-danger-light' %}
+                                        {% elif 'Due Soon' in task.due_status %}
+                                            {% set row_color_class = 'table-warning-light' %}
+                                        {% elif 'Warning' in task.due_status %}
+                                            {% set row_color_class = 'table-info-light' %}
+                                        {% endif %}
+
+                                        <tr class="{{ row_color_class }}" style="vertical-align: top;">
+                                            <td style="white-space: normal !important;">
+                                                <strong>{{ task.equipment_ref.code }} - {{ task.equipment_ref.name }}</strong><br>
+                                                <small>{{ task.description }}</small>
+                                            </td>
+                                            <td style="white-space: normal !important;">
+                                                <small>
+                                                    <div><span class="text-muted">Interval:</span> {{ task.interval_value }} {{ task.interval_type | replace('hours', 'hrs') }}</div>
+                                                    <div><span class="text-muted">Last Done:</span> {{ task.last_performed_info | replace('hours', 'hrs') or 'N/A' }}</div>
+                                                    <div><span class="text-muted">Next Due:</span> {{ task.next_due_info | replace('hours', 'hrs') or 'N/A' }}</div>
+                                                    <div><span class="text-muted">Remaining/Info:</span> {{ task.due_info | replace('hours', 'hrs') or 'N/A' }}</div>
+                                                    <div><span class="text-muted">Est. Time:</span> {{ task.estimated_days_info or 'N/A' }}</div>
+                                                </small>
+                                            </td>
+                                            <td>
+                                                <span class="badge
+                                                    {% if 'Overdue' in task.due_status %}bg-danger
+                                                    {% elif 'Due Soon' in task.due_status %}bg-warning text-dark
+                                                    {% elif 'OK' in task.due_status %}bg-success
+                                                    {% elif 'Warning' in task.due_status %}bg-info text-dark
+                                                    {% else %}bg-secondary
+                                                    {% endif %}">
+                                                    {{ task.due_status }}
+                                                </span>
+                                            </td>
+                                            <td style="white-space: normal !important;">
+                                                <form method="POST" action="{{ url_for('planned_maintenance.new_job_card_from_task', task_id=task.id) }}" class="d-inline mb-1">
+                                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+
+                                                    {% set due_date_value = '' %}
+                                                    {% set due_date_display = 'N/A' %}
+
+                                                    {% if task.due_status and 'Overdue' in task.due_status %}
+                                                        {% set due_date_value = today.isoformat() %}
+                                                        {% set due_date_display = today.strftime('%Y-%m-%d') %}
+                                                    {% elif task.due_date and task.due_date is not none %}
+                                                        {% set due_date_value = task.due_date.strftime('%Y-%m-%d') %}
+                                                        {% set due_date_display = task.due_date.strftime('%Y-%m-%d') %}
+                                                    {% endif %}
+
+                                                    <input type="hidden" name="due_date" value="{{ due_date_value }}">
+
+                                                    <div class="input-group input-group-sm">
+                                                        <input type="text" name="technician" class="form-control form-control-sm" placeholder="Tech" style="max-width: 70px;" title="Assign Technician (Optional)">
+                                                        <button type="submit"
+                                                                class="btn btn-success btn-sm"
+                                                                title="Create Job Card">
+                                                            <i class="bi bi-plus-circle-fill"></i>
+                                                        </button>
+                                                    </div>
+                                                </form>
+                                                <div class="mt-1">
+                                                    <small class="text-muted">
+                                                        <i class="bi bi-arrow-return-right me-1"></i>
+                                                        Create JC for: "{{ task.description | truncate(30, True) | escape }}" on {{ task.equipment_ref.code | escape }}
+                                                        {% if due_date_value %}
+                                                            <span class="text-primary">(Due: {{ due_date_display }})</span>
+                                                        {% endif %}
+                                                    </small>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="card-body text-center">
+                            <p class="text-muted text-center">No legal compliance tasks currently overdue or due soon. <a href="{{ url_for('planned_maintenance.legal_tasks_list') }}">View all legal tasks.</a></p>
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="card-footer text-muted">
+                    <small>Shows legal compliance tasks Overdue, Due Soon, or with Warnings. These tasks are required for regulatory compliance.</small>
+                </div>
+            </div>
             <!-- Equipment Status Card -->
             <div class="card mb-4">
                 <div class="card-header d-flex justify-content-between align-items-center">
@@ -181,96 +289,98 @@
                                 </thead>
                                 <tbody>
                                     {% for eq in equipment %} {# Loop through the filtered equipment #}
-                                        {% set last_check_date_obj = eq.latest_checklist.check_date if eq.latest_checklist else None %}
-                                        {% set last_check_date_str = last_check_date_obj.strftime('%Y-%m-%d') if last_check_date_obj else 'Never' %}
-                                        {% set checked_today = last_check_date_obj and last_check_date_obj.date() == today %}
-                                        {# Highlight row if checklist needed but not done #}
-                                        <tr class="{% if eq.checklist_required and not checked_today and last_check_date_str != 'Never' %}table-danger{% endif %}">
-                                            <td><small>{{ eq.code }} - {{ eq.name }}</small></td>
-                                            <td><small>{{ eq.type }}</small></td>
-                                            <!-- == NEW Cell: Display Status with Badge == -->
-                                            <td>
-                                                {% set status_color = 'secondary' %} {# Default badge color #}
-                                                {% if eq.status == 'Operational' %}
-                                                    {% set status_color = 'success' %}
-                                                {% elif eq.status in ['Broken Down', 'At OEM', 'Under Repair', 'Awaiting Spares'] %}
-                                                    {% set status_color = 'danger' %}
-                                                {# Add elif for other statuses if needed #}
-                                                {% elif eq.status == 'Sold' %} {# Should not appear due to route filter, but good practice #}
-                                                     {% set status_color = 'dark' %}
+                                    {% set last_check_date_obj = eq.latest_checklist.check_date if eq.latest_checklist else None %}
+                                    {% set last_check_date_str = last_check_date_obj.strftime('%Y-%m-%d') if last_check_date_obj else 'Never' %}
+                                    {# MODIFIED: Check against yesterday instead of today #}
+                                    {% set checked_yesterday_or_today = last_check_date_obj and (last_check_date_obj.date() == yesterday or last_check_date_obj.date() == today) %}
+                                    
+                                    {# Highlight row if checklist needed but not done #}
+                                    <tr class="{% if eq.checklist_required and not checked_yesterday_or_today and last_check_date_str != 'Never' %}table-danger{% endif %}">    
+                                        <td><small>{{ eq.code }} - {{ eq.name }}</small></td>
+                                        <td><small>{{ eq.type }}</small></td>
+                                        <!-- == NEW Cell: Display Status with Badge == -->
+                                        <td>
+                                            {% set status_color = 'secondary' %} {# Default badge color #}
+                                            {% if eq.status == 'Operational' %}
+                                                {% set status_color = 'success' %}
+                                            {% elif eq.status in ['Broken Down', 'At OEM', 'Under Repair', 'Awaiting Spares'] %}
+                                                {% set status_color = 'danger' %}
+                                            {# Add elif for other statuses if needed #}
+                                            {% elif eq.status == 'Sold' %} {# Should not appear due to route filter, but good practice #}
+                                                    {% set status_color = 'dark' %}
+                                            {% endif %}
+                                            <span class="badge bg-{{ status_color }}"><small>{{ eq.status }}</small></span>
+                                        </td>
+                                        <!-- ======================================== -->
+                                        <td>
+                                            <small>
+                                            {% if eq.latest_usage %}
+                                                {{ eq.latest_usage.usage_value }} on {{ eq.latest_usage.log_date.strftime('%Y-%m-%d') }}
+                                            {% else %}
+                                                Never
+                                            {% endif %}
+                                            </small>
+                                        </td>
+                                        <td>
+                                            <small>
+                                            {% if eq.latest_checklist %}
+                                                <span class="badge {% if eq.latest_checklist.status == 'Go' %}bg-success{% elif eq.latest_checklist.status == 'Go But' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                                    {{ eq.latest_checklist.status }}
+                                                </span> on {{ last_check_date_str }}
+                                                {% if eq.checklist_required and not checked_yesterday_or_today and last_check_date_str != 'Never' %}
+                                                    <span class="badge bg-danger ms-1">Needed Today</span>
                                                 {% endif %}
-                                                <span class="badge bg-{{ status_color }}"><small>{{ eq.status }}</small></span>
-                                            </td>
-                                            <!-- ======================================== -->
-                                            <td>
-                                                <small>
-                                                {% if eq.latest_usage %}
-                                                    {{ eq.latest_usage.usage_value }} on {{ eq.latest_usage.log_date.strftime('%Y-%m-%d') }}
-                                                {% else %}
-                                                    Never
-                                                {% endif %}
-                                                </small>
-                                            </td>
-                                            <td>
-                                                <small>
-                                                {% if eq.latest_checklist %}
-                                                    <span class="badge {% if eq.latest_checklist.status == 'Go' %}bg-success{% elif eq.latest_checklist.status == 'Go But' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
-                                                        {{ eq.latest_checklist.status }}
-                                                    </span> on {{ last_check_date_str }}
-                                                    {% if eq.checklist_required and not checked_today and last_check_date_str != 'Never' %}
-                                                        <span class="badge bg-danger ms-1">Needed Today</span>
+                                            {% else %}
+                                                Never {% if eq.checklist_required %}<span class="badge bg-secondary ms-1">Required</span>{% endif %}
+                                            {% endif %}
+                                            </small>
+                                        </td>
+                                        <!-- == MODIFIED Cell: Actions Dropdown == -->
+                                        <td>
+                                            <div class="dropdown">
+                                                <button class="btn btn-outline-secondary btn-xs dropdown-toggle" type="button" id="actionsDropdown-{{ eq.id }}" data-bs-toggle="dropdown" aria-expanded="false">
+                                                    <i class="bi bi-gear"></i> Actions
+                                                </button>
+                                                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="actionsDropdown-{{ eq.id }}">
+                                                    <li>
+                                                        <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#usageModal-{{ eq.id }}">
+                                                            <i class="bi bi-speedometer2 me-2"></i>Log Usage
+                                                        </button>
+                                                    </li>
+                                                    {% if eq.checklist_required %}
+                                                    <li>
+                                                        <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#checklistModal-{{ eq.id }}">
+                                                            <i class="bi bi-check2-square me-2"></i>Log Checklist
+                                                        </button>
+                                                    </li>
                                                     {% endif %}
-                                                {% else %}
-                                                    Never {% if eq.checklist_required %}<span class="badge bg-secondary ms-1">Required</span>{% endif %}
-                                                {% endif %}
-                                                </small>
-                                            </td>
-                                            <!-- == MODIFIED Cell: Actions Dropdown == -->
-                                            <td>
-                                                <div class="dropdown">
-                                                    <button class="btn btn-outline-secondary btn-xs dropdown-toggle" type="button" id="actionsDropdown-{{ eq.id }}" data-bs-toggle="dropdown" aria-expanded="false">
-                                                        <i class="bi bi-gear"></i> Actions
-                                                    </button>
-                                                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="actionsDropdown-{{ eq.id }}">
+                                                    <li><hr class="dropdown-divider"></li>
+                                                    <li>
+                                                        <a class="dropdown-item" href="{{ url_for('planned_maintenance.edit_equipment', id=eq.id) }}">
+                                                            <i class="bi bi-pencil-square me-2"></i>Edit Equipment
+                                                        </a>
+                                                    </li>
+                                                    <li>
+                                                        <a class="dropdown-item" href="{{ url_for('planned_maintenance.tasks_list', equipment_id=eq.id) }}">
+                                                            <i class="bi bi-list-task me-2"></i>View Tasks
+                                                        </a>
+                                                    </li>
+                                                        {# Optional: Add links to usage/checklist logs filtered for this eq #}
                                                         <li>
-                                                            <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#usageModal-{{ eq.id }}">
-                                                                <i class="bi bi-speedometer2 me-2"></i>Log Usage
-                                                            </button>
-                                                        </li>
-                                                        {% if eq.checklist_required %}
+                                                        <a class="dropdown-item" href="{{ url_for('planned_maintenance.usage_logs', equipment_id=eq.id) }}">
+                                                            <i class="bi bi-graph-up me-2"></i>View Usage Log
+                                                        </a>
+                                                    </li>
                                                         <li>
-                                                            <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#checklistModal-{{ eq.id }}">
-                                                                <i class="bi bi-check2-square me-2"></i>Log Checklist
-                                                            </button>
-                                                        </li>
-                                                        {% endif %}
-                                                        <li><hr class="dropdown-divider"></li>
-                                                        <li>
-                                                            <a class="dropdown-item" href="{{ url_for('planned_maintenance.edit_equipment', id=eq.id) }}">
-                                                                <i class="bi bi-pencil-square me-2"></i>Edit Equipment
-                                                            </a>
-                                                        </li>
-                                                        <li>
-                                                            <a class="dropdown-item" href="{{ url_for('planned_maintenance.tasks_list', equipment_id=eq.id) }}">
-                                                               <i class="bi bi-list-task me-2"></i>View Tasks
-                                                            </a>
-                                                        </li>
-                                                         {# Optional: Add links to usage/checklist logs filtered for this eq #}
-                                                         <li>
-                                                            <a class="dropdown-item" href="{{ url_for('planned_maintenance.usage_logs', equipment_id=eq.id) }}">
-                                                               <i class="bi bi-graph-up me-2"></i>View Usage Log
-                                                            </a>
-                                                        </li>
-                                                         <li>
-                                                            <a class="dropdown-item" href="{{ url_for('planned_maintenance.checklist_logs', equipment_id=eq.id) }}">
-                                                               <i class="bi bi-card-checklist me-2"></i>View Checklist Log
-                                                            </a>
-                                                        </li>
-                                                    </ul>
-                                                </div>
-                                            </td>
-                                            <!-- ======================================== -->
-                                        </tr>
+                                                        <a class="dropdown-item" href="{{ url_for('planned_maintenance.checklist_logs', equipment_id=eq.id) }}">
+                                                            <i class="bi bi-card-checklist me-2"></i>View Checklist Log
+                                                        </a>
+                                                    </li>
+                                                </ul>
+                                            </div>
+                                        </td>
+                                        <!-- ======================================== -->
+                                    </tr>
                                     {% endfor %}
                                 </tbody>
                             </table>
@@ -282,28 +392,26 @@
                     {% endif %}
                 </div>
                  <div class="card-footer text-muted">
-                    <small>Equipment marked 'Sold' is hidden. Red row indicates checklist required but not completed today.</small>
+                    <small>Equipment marked 'Sold' is hidden. Red row indicates checklist required but not completed yesterday or today.</small>
                 </div>
             </div>
             <!-- Open Job Cards Card -->
             <div class="card mb-4">
                 <div class="card-header d-flex justify-content-between align-items-center">
                 <span>Open Job Cards ({{ job_cards|length }})</span>
-                <div> {# Group buttons #}
+                <div>
                     <a href="{{ url_for('planned_maintenance.job_card_list') }}" class="btn btn-sm btn-outline-primary">
                         <i class="bi bi-list-ul me-1"></i> View All Job Cards
                     </a>
                     <button type="button" class="btn btn-sm btn-success me-2" data-bs-toggle="modal" data-bs-target="#newJobCardModal">
                         <i class="bi bi-plus-circle-fill me-1"></i> Create New Job Card
                     </button>
-                    {# Optional: Link to a dedicated Job Card list page #}
-                    {# <a href="{{ url_for('some_module.job_card_list') }}" class="btn btn-sm btn-outline-primary">View All Open JCs</a> #}
                 </div>
             </div>
-                <div class="card-body p-0"> {# Remove padding #}
+                <div class="card-body p-0">
                 {% if job_cards %}
                     <div class="table-responsive">
-                        <table class="table table-striped table-hover table-sm mb-0"> {# table-sm #}
+                        <table class="table table-striped table-hover table-sm mb-0">
                             <thead>
                                 <tr>
                                     <th>#</th>
@@ -311,52 +419,71 @@
                                     <th>Description</th>
                                     <th>Due Date</th>
                                     <th>Status</th>
+                                    <th>Type</th> <!-- New column for job type -->
                                     <th>Technician</th>
-                                    <!-- == MODIFIED: Action Column Header == -->
                                     <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for jc in job_cards %}
-                                    <tr>
+                                    <!-- Determine if this is a legal compliance job by the job number prefix -->
+                                    {% set is_legal = jc.job_number.startswith('LC-') %}
+                                    
+                                    <!-- Apply a subtle background color for legal jobs -->
+                                    <tr {% if is_legal %}class="table-info-light"{% endif %}>
                                         <td><small>{{ jc.job_number }}</small></td>
                                         <td><small>{{ jc.equipment_ref.code }} - {{ jc.equipment_ref.name }}</small></td>
                                         <td><small>{{ jc.description | truncate(40) }}</small></td>
                                         <td><small>{{ jc.due_date.strftime('%Y-%m-%d') if jc.due_date else 'Not Set' }}</small></td>
-                                        <td><small><span class="badge {% if jc.status == 'To Do' %}bg-warning text-dark{% elif jc.status == 'In Progress' %}bg-info text-dark{% else %}bg-secondary{% endif %}">{{ jc.status }}</span></small></td>
+                                        <td>
+                                            <small>
+                                                <span class="badge 
+                                                    {% if jc.status == 'To Do' %}bg-warning text-dark
+                                                    {% elif jc.status == 'In Progress' %}bg-info text-dark
+                                                    {% else %}bg-secondary{% endif %}">
+                                                    {{ jc.status }}
+                                                </span>
+                                            </small>
+                                        </td>
+                                        <!-- New cell for job type -->
+                                        <td>
+                                            <small>
+                                                <span class="badge {% if is_legal %}bg-info{% else %}bg-secondary{% endif %}">
+                                                    {{ "Legal" if is_legal else "Maint" }}
+                                                </span>
+                                            </small>
+                                        </td>
                                         <td><small>{{ jc.technician or 'Unassigned' }}</small></td>
-                                        <!-- == MODIFIED: Actions Cell Content == -->
                                         <td>
                                             <div class="btn-group btn-group-sm" role="group" aria-label="Job Card Actions">
-                                                {# Complete Button #}
                                                 <a href="{{ url_for('planned_maintenance.complete_job_card', id=jc.id) }}"
                                                     class="btn btn-outline-success btn-xs" title="Complete Job Card">
                                                     <i class="bi bi-check-lg"></i> Complete
                                                 </a>
-                                                {# WhatsApp Button (only if URL was generated) #}
                                                 {% if jc.whatsapp_share_url %}
                                                     <a href="{{ jc.whatsapp_share_url }}"
                                                         class="btn btn-outline-primary btn-xs"
-                                                        target="_blank" {# Open in new tab/WhatsApp client #}
+                                                        target="_blank"
                                                         title="Share on WhatsApp">
                                                         <i class="bi bi-whatsapp"></i> Share
                                                     </a>
                                                 {% endif %}
-                                                {# Optional: Add other buttons like Edit, View Details etc. here #}
                                             </div>
                                         </td>
-                                        <!-- ================================== -->
                                     </tr>
                                 {% endfor %}
                             </tbody>
                         </table>
                     </div>
                 {% else %}
-                        <div class="card-body text-center"> {# Add padding back #}
+                        <div class="card-body text-center">
                         <p class="text-muted mb-0">No open job cards.</p>
                     </div>
                 {% endif %}
             </div>
+                <div class="card-footer text-muted">
+                    <small>Job numbers starting with "LC-" are Legal Compliance tasks, while "JC-" are regular Maintenance tasks.</small>
+                </div>
             </div>
             <!-- Recent Activity Card (No changes needed here) -->
             <div class="card mb-4">

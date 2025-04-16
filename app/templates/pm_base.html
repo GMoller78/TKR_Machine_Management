@@ -27,6 +27,9 @@
               <a class="nav-link {% if request.endpoint == 'planned_maintenance.tasks_list' %}active{% endif %}" href="{{ url_for('planned_maintenance.tasks_list') }}">Maintenance Tasks</a>
             </li>
             <li class="nav-item">
+              <a class="nav-link {% if request.endpoint == 'planned_maintenance.legal_tasks_list' %}active{% endif %}" href="{{ url_for('planned_maintenance.legal_tasks_list') }}">Legal Compliance</a>
+            </li>
+            <li class="nav-item">
               <a class="nav-link {% if request.endpoint == 'planned_maintenance.job_card_list' %}active{% endif %}" href="{{ url_for('planned_maintenance.job_card_list') }}">Job Cards</a>
             </li>
             <!-- Add other PM links as needed -->

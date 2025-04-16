@@ -1,164 +1,180 @@
-{# --- START OF FILE pm_job_card_list.html --- #}
-{# tkr_system/app/templates/pm_job_card_list.html #}
+{# Modified pm_job_card_list.html with job type filter #}
 {% extends "pm_base.html" %}
-{% from "_formhelpers.html" import render_pagination %} {# Assuming you have pagination macros #}
 
 {% block title %}{{ title }} - {{ super() }}{% endblock %}
 
-{% block styles %}
-{{ super() }}
-{# Add styles for multi-select if using a library like Select2 or Bootstrap Multiselect #}
-{# Example for Bootstrap Icons #}
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-<style>
-    .filter-form .form-label { font-size: 0.9rem; margin-bottom: 0.25rem; }
-    .action-btn-group .btn { padding: 0.2rem 0.4rem; font-size: 0.8rem; }
-    .table th, .table td { vertical-align: middle; }
-</style>
-{% endblock %}
-
 {% block content %}
-<div class="container-fluid mt-4">
-    <h1 class="mb-4">{{ title }}</h1>
-
-    {# Filter Form Card #}
-    <div class="card shadow-sm mb-4 filter-form">
+<div class="container-fluid">
+    <h1 class="mb-3">Job Card List</h1>
+    
+    <!-- Filter Form -->
+    <div class="card mb-4">
         <div class="card-header">
-            <i class="bi bi-funnel-fill me-2"></i>Filters
+            <i class="bi bi-funnel me-1"></i> Filter Options
         </div>
         <div class="card-body">
             <form method="GET" action="{{ url_for('planned_maintenance.job_card_list') }}">
-                <div class="row g-3 align-items-end">
-                    {# Date Range #}
-                    <div class="col-md-2">
-                        <label for="start_date" class="form-label">Due Date From</label>
-                        <input type="date" class="form-control form-control-sm" id="start_date" name="start_date" value="{{ current_filters.start_date or '' }}">
+                <div class="row g-3">
+                    <!-- Date Filters -->
+                    <div class="col-md-3">
+                        <label for="start_date" class="form-label">Start Date</label>
+                        <input type="date" class="form-control" id="start_date" name="start_date" 
+                               value="{{ current_filters.start_date }}">
                     </div>
-                    <div class="col-md-2">
-                        <label for="end_date" class="form-label">Due Date To</label>
-                        <input type="date" class="form-control form-control-sm" id="end_date" name="end_date" value="{{ current_filters.end_date or '' }}">
+                    <div class="col-md-3">
+                        <label for="end_date" class="form-label">End Date</label>
+                        <input type="date" class="form-control" id="end_date" name="end_date" 
+                               value="{{ current_filters.end_date }}">
                     </div>
-
-                    {# === MODIFIED: Equipment Text Search === #}
-                    <div class="col-md-4">
-                        <label for="equipment_search" class="form-label">Equipment Search</label>
-                        <input type="text" class="form-control form-control-sm" id="equipment_search" name="equipment_search"
-                               placeholder="Enter code or name..."
-                               value="{{ current_filters.equipment_search or '' }}">
-                         <div class="form-text">Filters by matching code or name.</div>
-                    </div>
-                    {# === END MODIFICATION === #}
-
-                    {# Status Select #}
+                    
+                    <!-- Status Filter -->
                     <div class="col-md-2">
                         <label for="status" class="form-label">Status</label>
-                        <select class="form-select form-select-sm" id="status" name="status">
-                            {% for stat in job_card_statuses %}
-                                <option value="{{ stat }}" {% if stat == current_filters.status %}selected{% endif %}>
-                                    {{ stat }}
-                                </option>
+                        <select class="form-select" id="status" name="status">
+                            {% for status in job_card_statuses %}
+                                <option value="{{ status }}" {% if status == current_filters.status %}selected{% endif %}>{{ status }}</option>
                             {% endfor %}
                         </select>
                     </div>
-
-                    {# Action Buttons #}
-                    <div class="col-md-2 text-end">
-                        <button type="submit" class="btn btn-primary btn-sm" title="Apply Filters">
-                            <i class="bi bi-search"></i> <span class="d-none d-lg-inline">Filter</span>
+                    
+                    <!-- New: Job Type Filter -->
+                    <div class="col-md-2">
+                        <label for="job_type" class="form-label">Job Type</label>
+                        <select class="form-select" id="job_type" name="job_type">
+                            {% for job_type in job_type_options %}
+                                <option value="{{ job_type }}" {% if job_type == current_filters.job_type %}selected{% endif %}>{{ job_type }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <!-- Equipment Search -->
+                    <div class="col-md-2">
+                        <label for="equipment_search" class="form-label">Equipment</label>
+                        <input type="text" class="form-control" id="equipment_search" name="equipment_search" 
+                               placeholder="Search equipment..." value="{{ current_filters.equipment_search }}">
+                    </div>
+                    
+                    <!-- Filter Buttons -->
+                    <div class="col-12 d-flex justify-content-end">
+                        <button type="submit" class="btn btn-primary me-2">
+                            <i class="bi bi-funnel me-1"></i> Apply Filters
                         </button>
-                        <a href="{{ url_for('planned_maintenance.job_card_list') }}" class="btn btn-secondary btn-sm ms-1" title="Reset Filters">
-                            <i class="bi bi-arrow-clockwise"></i> <span class="d-none d-lg-inline">Reset</span>
+                        <a href="{{ url_for('planned_maintenance.job_card_list') }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-x-circle me-1"></i> Clear Filters
                         </a>
                     </div>
                 </div>
             </form>
         </div>
     </div>
-
-    {# Results Table Card #}
-    <div class="card shadow-sm">
+    
+    <!-- Job Cards Table -->
+    <div class="card mb-4">
         <div class="card-header d-flex justify-content-between align-items-center">
-            <span>Results ({{ pagination.total if pagination else 0 }} found)</span>
-            {# Optional: Add 'Create New Job Card' button here #}
-            <button type="button" class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#newJobCardModal">
-                <i class="bi bi-plus-circle-fill me-1"></i> Create New Job Card
-            </button>
+            <span><i class="bi bi-list-task me-1"></i> Job Cards</span>
+            <div>
+                <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#newJobCardModal">
+                    <i class="bi bi-plus-circle-fill me-1"></i> Create New Job Card
+                </button>
+            </div>
         </div>
-        <div class="card-body p-0"> {# Remove padding for table #}
-            {% if job_cards %}
+        <div class="card-body p-0">
+            {% if error %}
+                <div class="alert alert-danger m-3">{{ error }}</div>
+            {% endif %}
+            
+            {% if pagination and pagination.items %}
                 <div class="table-responsive">
                     <table class="table table-striped table-hover table-sm mb-0">
-                        <thead class="table-light">
+                        <thead>
                             <tr>
-                                <th>#</th>
+                                <th>Job #</th>
                                 <th>Equipment</th>
                                 <th>Description</th>
-                                <th>Due Date</th>
                                 <th>Status</th>
+                                <th>Type</th>   <!-- New Type column -->
+                                <th>Due Date</th>
                                 <th>Technician</th>
-                                <th style="width: 18%;">Actions</th> {# Wider actions column #}
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for jc in job_cards %}
+                                {% set is_legal = jc.job_number.startswith('LC-') %}
                                 <tr>
                                     <td>{{ jc.job_number }}</td>
+                                    <td>{{ jc.equipment_ref.code }} - {{ jc.equipment_ref.name }}</td>
+                                    <td>{{ jc.description | truncate(40) }}</td>
                                     <td>
-                                        {% if jc.equipment_ref %}
-                                            <small>{{ jc.equipment_ref.code }} - {{ jc.equipment_ref.name }}</small>
-                                        {% else %}
-                                            <span class="text-danger">Missing Eq!</span>
-                                        {% endif %}
-                                    </td>
-                                    <td><small>{{ jc.description | truncate(50) }}</small></td>
-                                    <td>{{ jc.due_date.strftime('%Y-%m-%d') if jc.due_date else '--' }}</td>
-                                    <td>
-                                        <span class="badge {% if jc.status == 'Done' %}bg-success{% elif jc.status == 'To Do' %}bg-warning text-dark{% elif jc.status == 'In Progress' %}bg-info text-dark{% else %}bg-secondary{% endif %}">
+                                        <span class="badge 
+                                            {% if jc.status == 'To Do' %}bg-warning text-dark
+                                            {% elif jc.status == 'In Progress' %}bg-info text-dark
+                                            {% elif jc.status == 'Done' %}bg-success
+                                            {% else %}bg-secondary{% endif %}">
                                             {{ jc.status }}
                                         </span>
                                     </td>
-                                    <td><small>{{ jc.technician or '--' }}</small></td>
+                                    <!-- New Type column with badge -->
                                     <td>
-                                        <div class="btn-group btn-group-sm action-btn-group" role="group" aria-label="Job Card Actions for {{ jc.job_number }}">
-                                            {# Complete Button - Show only if not Done #}
+                                        <span class="badge {% if is_legal %}bg-info{% else %}bg-secondary{% endif %}">
+                                            {{ "Legal" if is_legal else "Maint" }}
+                                        </span>
+                                    </td>
+                                    <td>{{ jc.due_date.strftime('%Y-%m-%d') if jc.due_date else 'Not Set' }}</td>
+                                    <td>{{ jc.technician or 'Unassigned' }}</td>
+                                    <td>
+                                        <div class="btn-group" role="group">
                                             {% if jc.status != 'Done' %}
-                                            <a href="{{ url_for('planned_maintenance.complete_job_card', id=jc.id) }}"
-                                                class="btn btn-outline-success" title="Complete">
-                                                <i class="bi bi-check-lg"></i>
-                                            </a>
+                                                <a href="{{ url_for('planned_maintenance.complete_job_card', id=jc.id) }}" 
+                                                   class="btn btn-sm btn-outline-success">
+                                                    <i class="bi bi-check-lg"></i>
+                                                </a>
                                             {% endif %}
-
-                                            {# Print Button (links to detail view) #}
-                                            <a href="{{ url_for('planned_maintenance.job_card_detail', id=jc.id) }}"
-                                               class="btn btn-outline-secondary" title="View/Print Details">
-                                                <i class="bi bi-printer"></i>
+                                            <a href="{{ url_for('planned_maintenance.job_card_detail', id=jc.id) }}" 
+                                               class="btn btn-sm btn-outline-primary">
+                                                <i class="bi bi-eye"></i>
                                             </a>
-
-                                            {# Share Button #}
+                                            {% if jc.status != 'Done' %}
+                                                <a href="{{ url_for('planned_maintenance.edit_job_card', id=jc.id) }}" 
+                                                   class="btn btn-sm btn-outline-secondary">
+                                                    <i class="bi bi-pencil"></i>
+                                                </a>
+                                            {% endif %}
                                             {% if jc.whatsapp_share_url %}
-                                                <a href="{{ jc.whatsapp_share_url }}" target="_blank"
-                                                    class="btn btn-outline-primary" title="Share via WhatsApp">
+                                                <a href="{{ jc.whatsapp_share_url }}" 
+                                                   class="btn btn-sm btn-outline-success" target="_blank">
                                                     <i class="bi bi-whatsapp"></i>
                                                 </a>
                                             {% endif %}
-
-                                            {# Edit Button - Placeholder Link #}
-                                             {% if jc.status != 'Done' %} {# Maybe prevent editing done cards? #}
-                                                <a href="{{ url_for('planned_maintenance.edit_job_card', id=jc.id) }}"
-                                                    class="btn btn-outline-warning" title="Edit">
-                                                    <i class="bi bi-pencil-fill"></i>
-                                                </a>
-                                             {% endif %}
-
-                                            {# Delete Button - Placeholder Form #}
-                                            {% if jc.status != 'Done' %} {# Maybe prevent deleting done cards? #}
-                                                <form method="POST" action="{{ url_for('planned_maintenance.delete_job_card', id=jc.id) }}" class="d-inline"
-                                                      onsubmit="return confirm('Are you sure you want to delete Job Card {{ jc.job_number }}? This cannot be undone.');">
-                                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
-                                                    <button type="submit" class="btn btn-outline-danger" title="Delete">
-                                                        <i class="bi bi-trash-fill"></i>
-                                                    </button>
-                                                </form>
+                                            <!-- Only show delete for non-Done jobs -->
+                                            {% if jc.status != 'Done' %}
+                                                <button type="button" class="btn btn-sm btn-outline-danger"
+                                                        data-bs-toggle="modal" data-bs-target="#deleteJobCardModal-{{ jc.id }}">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                                
+                                                <!-- Delete Confirmation Modal -->
+                                                <div class="modal fade" id="deleteJobCardModal-{{ jc.id }}" tabindex="-1" 
+                                                     aria-labelledby="deleteJobCardModalLabel-{{ jc.id }}" aria-hidden="true">
+                                                    <div class="modal-dialog">
+                                                        <div class="modal-content">
+                                                            <div class="modal-header">
+                                                                <h5 class="modal-title" id="deleteJobCardModalLabel-{{ jc.id }}">Confirm Delete</h5>
+                                                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                                            </div>
+                                                            <div class="modal-body">
+                                                                Are you sure you want to delete job card #{{ jc.job_number }}?
+                                                            </div>
+                                                            <div class="modal-footer">
+                                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                                                <form action="{{ url_for('planned_maintenance.delete_job_card', id=jc.id) }}" method="POST">
+                                                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                                                                    <button type="submit" class="btn btn-danger">Delete</button>
+                                                                </form>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             {% endif %}
                                         </div>
                                     </td>
@@ -167,62 +183,79 @@
                         </tbody>
                     </table>
                 </div>
-            {% elif error %}
-                 <div class="card-body">
-                    <div class="alert alert-danger" role="alert">
-                        {{ error }}
+                
+                <!-- Pagination -->
+                {% if pagination.pages > 1 %}
+                    <div class="d-flex justify-content-center mt-3">
+                        <nav aria-label="Job Card Pages">
+                            <ul class="pagination">
+                                <!-- Previous Button -->
+                                <li class="page-item {% if pagination.page == 1 %}disabled{% endif %}">
+                                    <a class="page-link" href="{{ url_for('planned_maintenance.job_card_list', page=pagination.prev_num, 
+                                                                          start_date=current_filters.start_date,
+                                                                          end_date=current_filters.end_date,
+                                                                          equipment_search=current_filters.equipment_search,
+                                                                          status=current_filters.status,
+                                                                          job_type=current_filters.job_type) }}" 
+                                       aria-label="Previous">
+                                        <span aria-hidden="true">&laquo;</span>
+                                    </a>
+                                </li>
+                                
+                                <!-- Page Numbers -->
+                                {% for page_num in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                                    {% if page_num %}
+                                        <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
+                                            <a class="page-link" href="{{ url_for('planned_maintenance.job_card_list', page=page_num,
+                                                                              start_date=current_filters.start_date,
+                                                                              end_date=current_filters.end_date,
+                                                                              equipment_search=current_filters.equipment_search,
+                                                                              status=current_filters.status,
+                                                                              job_type=current_filters.job_type) }}">
+                                                {{ page_num }}
+                                            </a>
+                                        </li>
+                                    {% else %}
+                                        <li class="page-item disabled">
+                                            <span class="page-link">...</span>
+                                        </li>
+                                    {% endif %}
+                                {% endfor %}
+                                
+                                <!-- Next Button -->
+                                <li class="page-item {% if pagination.page == pagination.pages %}disabled{% endif %}">
+                                    <a class="page-link" href="{{ url_for('planned_maintenance.job_card_list', page=pagination.next_num,
+                                                                          start_date=current_filters.start_date,
+                                                                          end_date=current_filters.end_date,
+                                                                          equipment_search=current_filters.equipment_search,
+                                                                          status=current_filters.status,
+                                                                          job_type=current_filters.job_type) }}" 
+                                       aria-label="Next">
+                                        <span aria-hidden="true">&raquo;</span>
+                                    </a>
+                                </li>
+                            </ul>
+                        </nav>
                     </div>
-                 </div>
+                {% endif %}
             {% else %}
-                 <div class="card-body">
-                    <p class="text-muted text-center mb-0">No job cards found matching the selected filters.</p>
+                <div class="alert alert-info m-3">
+                    <i class="bi bi-info-circle me-2"></i> No job cards found matching the current filters.
                 </div>
             {% endif %}
-        </div> {# End card-body #}
-        
-        {# Pagination Footer #}
-        {% if pagination and pagination.pages > 1 %}
-            <div class="card-footer">
-                {{ render_pagination(pagination, 'planned_maintenance.job_card_list', request.args) }}
-            </div>
-        {% endif %}
-    </div> {# End card #}
-
-</div> {# End container #}
-
-{# Include Modal for Creating New Job Card ( Reuse from dashboard or specific one ) #}
-{% include 'pm_modals.html' ignore missing %} {# Or include the specific modal definition here #}
-
-{# Placeholder template for edit view - create this file if needed #}
-{# --- START pm_job_card_form_placeholder.html --- #}
-{# {% extends "pm_base.html" %}
-{% block title %}{{ title }}{% endblock %}
-{% block content %}
-<div class="container mt-4">
-    <h1>{{ title }}</h1>
-    <div class="alert alert-info">Edit form not implemented yet.</div>
-    <a href="{{ url_for('planned_maintenance.job_card_list') }}" class="btn btn-secondary">Back to List</a>
+        </div>
+        <div class="card-footer">
+            <small class="text-muted">
+                {% if pagination %}
+                    Showing {{ job_cards|length }} of {{ pagination.total }} job cards.
+                {% endif %}
+                Job numbers starting with "LC-" are Legal Compliance tasks, while "JC-" are regular Maintenance tasks.
+            </small>
+        </div>
+    </div>
 </div>
-{% endblock %} #}
-{# --- END pm_job_card_form_placeholder.html --- #}
+
+<!-- Include modals for creating new job cards -->
+{% include 'pm_modals.html' %}
 
 {% endblock %}
-
-{% block scripts %}
-{{ super() }}
-{# Add JS for any libraries used (e.g., Select2 for multi-select) #}
-{# Example: Initialize Select2 if you were using it
-<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
-<script>
-    $(document).ready(function() {
-        $('#equipment_ids').select2({
-            placeholder: "Select Equipment (optional)",
-            allowClear: true
-        });
-    });
-</script>
-#}
-{% endblock %}
-<!-- Modals for Usage and Checklist Logging -->
-
-{# --- END OF FILE pm_job_card_list.html --- #}

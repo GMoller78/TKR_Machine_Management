@@ -585,6 +585,7 @@ def dashboard():
         equipment_for_display = [eq for eq in all_equipment_list if eq.status != 'Sold']
         # Get today's date object and string representation
         today_date_obj = date.today() # Use date.today() for date object
+        yesterday_date_obj = today_date_obj - timedelta(days=1)
         today_str = today_date_obj.strftime('%Y-%m-%d') # String for comparisons if needed
 
         logging.debug("Fetching latest usage/checklist for equipment...")
@@ -648,17 +649,31 @@ def dashboard():
         current_time = datetime.utcnow() # Use consistent naive UTC time
         logging.debug(f"Dashboard processing tasks using current_time (naive UTC): {current_time}")
 
-        all_tasks = MaintenanceTask.query.options(
-            db.joinedload(MaintenanceTask.equipment_ref) # Eager load equipment
+        # 3.1 Process regular maintenance tasks (is_legal_compliance=False or NULL)
+        all_maintenance_tasks = MaintenanceTask.query.filter(
+            MaintenanceTask.is_legal_compliance.is_(False)
+        ).options(
+            db.joinedload(MaintenanceTask.equipment_ref)
         ).order_by(
-             MaintenanceTask.equipment_id, # Ensure consistent ordering
+             MaintenanceTask.equipment_id,
              MaintenanceTask.id
         ).all()
 
-        tasks_with_status_filtered = [] # List to hold only tasks relevant for dashboard (Overdue, Due Soon, Warning)
+        # 3.2 Process legal compliance tasks (is_legal_compliance=True)
+        all_legal_tasks = MaintenanceTask.query.filter(
+            MaintenanceTask.is_legal_compliance.is_(True)
+        ).options(
+            db.joinedload(MaintenanceTask.equipment_ref)
+        ).order_by(
+             MaintenanceTask.equipment_id,
+             MaintenanceTask.id
+        ).all()
+
+        tasks_with_status_filtered = [] # For maintenance tasks
+        legal_tasks_with_status_filtered = [] # For legal compliance tasks
 
         logging.debug("Calculating task statuses for dashboard...")
-        for task in all_tasks:
+        for task in all_maintenance_tasks:
             if not task.equipment_ref or task.equipment_ref.status == 'Sold':
                 logging.debug(f"Skipping task {task.id} for sold equipment {getattr(task.equipment_ref, 'code', 'N/A')}")
                 continue # Skip tasks for sold equipment
@@ -686,6 +701,62 @@ def dashboard():
             if include_task:
                 tasks_with_status_filtered.append(task)
 
+        # Process legal compliance tasks
+        logging.debug("Calculating legal compliance task statuses for dashboard...")
+        for task in all_legal_tasks:
+            if not task.equipment_ref or task.equipment_ref.status == 'Sold':
+                logging.debug(f"Skipping legal task {task.id} for sold equipment {getattr(task.equipment_ref, 'code', 'N/A')}")
+                continue # Skip tasks for sold equipment
+
+            # Calculate detailed status using the helper function
+            status, due_info, due_date_val, last_performed_info, next_due_info, estimated_days_info = \
+                calculate_task_due_status(task, current_time)
+
+            # Assign calculated attributes to the task object for template use
+            task.due_status = status
+            task.due_info = due_info
+            task.due_date = due_date_val
+            task.last_performed_info = last_performed_info
+            task.next_due_info = next_due_info
+            task.estimated_days_info = estimated_days_info
+
+            # Filter tasks for the dashboard view
+            include_task = False
+            if isinstance(status, str):
+                # Check for keywords indicating urgency or warning
+                if "Overdue" in status or "Due Soon" in status or "Warning" in status:
+                   include_task = True
+
+            if include_task:
+                legal_tasks_with_status_filtered.append(task)
+                
+        # Sort both task lists based on severity
+        sort_order_map = {
+            'Overdue': 1, 'Due Soon': 2, 'Warning': 3,
+            'Error': 4, 'Unknown': 99
+        }
+        default_sort_prio = 100
+
+        def get_sort_key(task_item):
+            status_str = getattr(task_item, 'due_status', 'Unknown')
+            if not isinstance(status_str, str): status_str = 'Unknown'
+            # Extract the primary status keyword for sorting
+            prio = default_sort_prio
+            for key, sort_prio in sort_order_map.items():
+                if key in status_str: # Check if keyword is present
+                    prio = sort_prio
+                    break # Use first match
+            # Optional secondary sort key (e.g., by due date if available)
+            secondary_key = task_item.due_date if task_item.due_date else datetime.max.replace(tzinfo=None)
+            return (prio, secondary_key)
+
+        try:
+            tasks_with_status_filtered.sort(key=get_sort_key)
+            legal_tasks_with_status_filtered.sort(key=get_sort_key)
+            logging.debug("Sorted filtered tasks for dashboard successfully.")
+        except Exception as task_sort_exc:
+            logging.error(f"Error sorting filtered tasks: {task_sort_exc}", exc_info=True)
+        
         logging.debug(f"Finished calculating task statuses. {len(tasks_with_status_filtered)} tasks included for dashboard display.")
 
         # Sort the filtered tasks based on severity (Overdue > Due Soon > Warning)
@@ -795,8 +866,10 @@ def dashboard():
             all_equipment=all_equipment_list,
             job_cards=open_job_cards,           # For open job cards table (with whatsapp_share_url)
             tasks=tasks_with_status_filtered,   # For upcoming tasks table (with status/due info)
+            legal_tasks=legal_tasks_with_status_filtered,
             recent_activities=recent_activities, # For activity feed
-            today=today_date_obj                # Pass the actual date object for template logic
+            today=today_date_obj,                # Pass the actual date object for template logic
+            yesterday=yesterday_date_obj
         )
 
     # --- Global Error Handling for the Route ---
@@ -1019,6 +1092,84 @@ def edit_equipment(id):
 # === Job cards            ===
 # ==============================================================================
 
+@bp.route('/job_card/new_from_task/<int:task_id>', methods=['POST'])
+def new_job_card_from_task(task_id):
+    try:
+        task = MaintenanceTask.query.get_or_404(task_id)
+        technician = request.form.get('technician')
+        due_date_str = request.form.get('due_date')
+        logging.debug(f"Received due_date string from form for task {task_id}: '{due_date_str}'")
+
+        # --- <<< CHECK FOR EXISTING OPEN JOB CARD >>> ---
+        existing_open_jc = JobCard.query.filter(
+            JobCard.equipment_id == task.equipment_id,
+            JobCard.description == task.description,
+            JobCard.status != 'Done'
+        ).first()
+
+        if existing_open_jc:
+            flash(f"Cannot create new job card. An open job card (#{existing_open_jc.job_number}) "
+                  f"already exists for task '{task.description}' on equipment {task.equipment_ref.code}.",
+                  "warning")
+            return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
+
+        # --- Parse the received due date string ---
+        due_date_dt = None
+        if due_date_str:
+            try:
+                parsed_date = datetime.strptime(due_date_str, '%Y-%m-%d').date()
+                due_date_dt = datetime.combine(parsed_date, time.min)
+                logging.debug(f"Parsed due_date_str '{due_date_str}' to datetime: {due_date_dt}")
+            except ValueError:
+                flash(f"Invalid due date format '{due_date_str}' received. Job card created without due date.", "warning")
+
+        # --- Generate Job Number with type distinction ---
+        # Determine if this is a legal compliance task
+        job_type = 'LEGAL' if task.is_legal_compliance else 'MAINT'
+        job_number = generate_next_job_number(job_type)
+        logging.debug(f"Generated Job Number: {job_number} (Type: {job_type})")
+
+        # --- Create New Job Card ---
+        job_card = JobCard(
+            job_number=job_number,
+            equipment_id=task.equipment_id,
+            description=task.description,
+            technician=technician if technician else None,
+            status='To Do',
+            oem_required=task.oem_required,
+            kit_required=task.kit_required,
+            due_date=due_date_dt
+        )
+        db.session.add(job_card)
+        db.session.commit()
+        logging.info(f"Job Card {job_number} created from task {task_id} with due date {due_date_dt}.")
+
+        # --- Format WhatsApp message ---
+        equipment_name = task.equipment_ref.name or 'Unknown Equipment'
+        due_date_display_str = due_date_dt.strftime('%Y-%m-%d') if due_date_dt else 'Not Set'
+        # Add job type information to the WhatsApp message
+        job_type_display = "Legal Compliance Task" if task.is_legal_compliance else "Maintenance Task"
+        whatsapp_msg = (
+            f"Job Card #{job_number} created from {job_type_display}:\n"
+            f"Equipment: {equipment_name}\n"
+            f"Task: {task.description}\n"
+            f"Assigned: {technician or 'Unassigned'}\n"
+            f"OEM Required: {'Yes' if task.oem_required else 'No'}\n"
+            f"Kit Required: {'Yes' if task.kit_required else 'No'}\n"
+            f"Due Date: {due_date_display_str}"
+        )
+
+        flash(f'Job Card {job_number} created from task!', 'success')
+        encoded_msg = urlencode({'text': whatsapp_msg})
+        whatsapp_url = f"https://wa.me/?{encoded_msg}"
+        return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
+
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error creating job card from task {task_id}: {e}", exc_info=True)
+        flash(f"Error creating job card from task: {e}", "danger")
+        return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
+
 @bp.route('/job_cards', methods=['GET'])
 def job_card_list():
     """Displays a list of job cards with filtering options."""
@@ -1038,10 +1189,13 @@ def job_card_list():
 
         # Status - Allow 'All' or specific status
         status_filter = request.args.get('status', 'All') # Default to 'All'
+        
+        # New: Job Type filter - 'All', 'Maintenance', or 'Legal'
+        job_type_filter = request.args.get('job_type', 'All') # Default to 'All'
 
         # Convert filter values
-        start_date_val = None # Renamed variable
-        end_date_val = None   # Renamed variable
+        start_date_val = None
+        end_date_val = None
 
         if start_date_str:
             try:
@@ -1051,13 +1205,10 @@ def job_card_list():
         if end_date_str:
             try:
                 end_date_val = datetime.strptime(end_date_str, '%Y-%m-%d').date()
-                 # Make end_date inclusive by setting time to end of day for datetime comparison if needed
-                 # If comparing date columns directly, this isn't strictly necessary.
-                 # end_date_dt = datetime.combine(end_date, time.max)
             except ValueError:
                 flash(f"Invalid end date format: {end_date_str}. Please use YYYY-MM-DD.", "warning")
 
-        logging.debug(f"Filters - Start: {start_date_val}, End: {end_date_val}, Equip Search: '{equipment_search_term}', Status: {status_filter}, Page: {page}")
+        logging.debug(f"Filters - Start: {start_date_val}, End: {end_date_val}, Equip Search: '{equipment_search_term}', Status: {status_filter}, Job Type: {job_type_filter}, Page: {page}")
 
         # 2. Build Base Query
         query = JobCard.query.options(
@@ -1066,18 +1217,13 @@ def job_card_list():
 
         # 3. Apply Filters
         if start_date_val:
-            # Filter where due_date is on or after start_date
             query = query.filter(JobCard.due_date >= start_date_val)
         if end_date_val:
-            # Filter where due_date is on or before end_date
             query = query.filter(JobCard.due_date <= end_date_val)
-            # Alternative for created_at: query = query.filter(JobCard.created_at <= end_date_dt)
 
         # Apply equipment search filter *after* the join is guaranteed (by options/join)
         if equipment_search_term:
             search_pattern = f"%{equipment_search_term}%"
-            # Filter based on the joined Equipment table
-            # Explicit join might be slightly clearer but joinedload should work
             query = query.join(JobCard.equipment_ref).filter(
                 or_(
                     Equipment.code.ilike(search_pattern),
@@ -1087,6 +1233,13 @@ def job_card_list():
 
         if status_filter and status_filter != 'All' and status_filter in JOB_CARD_STATUSES:
             query = query.filter(JobCard.status == status_filter)
+            
+        # Apply job type filter
+        if job_type_filter == 'Maintenance':
+            query = query.filter(JobCard.job_number.like('JC-%'))
+        elif job_type_filter == 'Legal':
+            query = query.filter(JobCard.job_number.like('LC-%'))
+        # 'All' doesn't need a filter
 
         # 4. Ordering (e.g., newest first or by due date)
         query = query.order_by(JobCard.id.desc()) # Or JobCard.due_date.desc().nullslast()
@@ -1099,15 +1252,19 @@ def job_card_list():
         for jc in job_cards_page:
             jc.whatsapp_share_url = generate_whatsapp_share_url(jc)
 
-        # 7. Fetch Data for Filter Dropdowns (no change needed here)
+        # 7. Fetch Data for Filter Dropdowns
         all_equipment = Equipment.query.order_by(Equipment.code).all()
+        
+        # 8. Define job type options for filter dropdown
+        job_type_options = ['All', 'Maintenance', 'Legal']
 
-        # 8. Store filter values for repopulating the form
+        # 9. Store filter values for repopulating the form
         current_filters = {
             'start_date': start_date_str,
             'end_date': end_date_str,
-            'equipment_search': equipment_search_term, # Pass back the search term
-            'status': status_filter
+            'equipment_search': equipment_search_term,
+            'status': status_filter,
+            'job_type': job_type_filter
         }
 
         logging.debug(f"Found {pagination.total} job cards matching filters. Displaying page {page} ({len(job_cards_page)} items).")
@@ -1119,6 +1276,7 @@ def job_card_list():
             job_cards=job_cards_page, # Pass items for the current page
             all_equipment=all_equipment,
             job_card_statuses=['All'] + JOB_CARD_STATUSES, # Add 'All' option
+            job_type_options=job_type_options, # Pass job type options for filter
             current_filters=current_filters, # Pass current filters back
             today=date.today() # Pass today's date for potential defaults
         )
@@ -1133,6 +1291,7 @@ def job_card_list():
             error=f"Could not load job cards: {e}",
             pagination=None, job_cards=[], all_equipment=[],
             job_card_statuses=['All'] + JOB_CARD_STATUSES,
+            job_type_options=['All', 'Maintenance', 'Legal'],
             current_filters={}, today=date.today()
         )
 
@@ -1203,7 +1362,6 @@ def job_card_detail(id):
 @bp.route('/job_card/complete/<int:id>', methods=['GET', 'POST'])
 def complete_job_card(id):
     job_card = JobCard.query.get_or_404(id)
-
     if job_card.status == 'Done':
         flash(f'Job Card {job_card.job_number} is already marked as Done.', 'info')
         return redirect(url_for('planned_maintenance.dashboard'))
@@ -1395,14 +1553,15 @@ def create_job_card():
         # 1. Get Data from Form
         equipment_id_str = request.form.get('equipment_id')
         description = request.form.get('description', '').strip()
-        technician = request.form.get('technician', '').strip() or None # Store None if empty
+        technician = request.form.get('technician', '').strip() or None
         due_date_str = request.form.get('due_date')
-        # Checkbox values are only sent if checked, use 'in request.form'
         oem_required = 'oem_required' in request.form
         kit_required = 'kit_required' in request.form
         send_whatsapp = 'send_whatsapp' in request.form
+        # New field: is_legal_compliance
+        is_legal = 'is_legal_compliance' in request.form
 
-        logging.debug(f"Received form data: equipment_id='{equipment_id_str}', description='{description}', due_date='{due_date_str}'...")
+        logging.debug(f"Received form data: equipment_id='{equipment_id_str}', description='{description}', due_date='{due_date_str}', is_legal='{is_legal}'...")
 
         # 2. Validation
         errors = False
@@ -1412,7 +1571,6 @@ def create_job_card():
             errors = True
         else:
             equipment_id = int(equipment_id_str)
-            # Optional: Check if equipment actually exists
             equipment = Equipment.query.get(equipment_id)
             if not equipment:
                 flash('Selected equipment not found in database.', 'danger')
@@ -1422,32 +1580,24 @@ def create_job_card():
             flash('Task Description is required.', 'danger')
             errors = True
 
-        due_date_dt = None # Use dt suffix for datetime object
+        due_date_dt = None
         if due_date_str:
             try:
-                # Parse date string only, combine with min time for naive datetime
                 due_date_only = datetime.strptime(due_date_str, '%Y-%m-%d').date()
-                due_date_dt = datetime.combine(due_date_only, time.min) # Naive datetime
-                # Make UTC aware for consistency if needed, but date column might handle it
-                # due_date_dt = due_date_dt.replace(tzinfo=timezone.utc)
+                due_date_dt = datetime.combine(due_date_only, time.min)
                 logging.debug(f"Parsed due_date: {due_date_dt}")
             except ValueError:
                 flash('Invalid Due Date format. Please use YYYY-MM-DD.', 'warning')
-                # Decide if this is a fatal error or just ignore the date
-                errors = True # Make it an error for now
+                errors = True
 
         if errors:
-             # Redirect back to the previous page (where the modal was opened)
-             # This isn't ideal for modals as the modal will be closed.
-             # Consider returning a JSON error or using HTMX/AJAX for better modal error handling later.
-             # For now, redirecting to the list view might be the simplest fallback.
             logging.warning("Validation errors encountered during Job Card creation.")
-            # Redirect back to the page that opened the modal if possible
             return redirect(request.referrer or url_for('planned_maintenance.job_card_list'))
 
-        # 3. Generate Job Number
-        job_number = generate_next_job_number()
-        logging.debug(f"Generated Job Number: {job_number}")
+        # 3. Generate Job Number with type distinction
+        job_type = 'LEGAL' if is_legal else 'MAINT'
+        job_number = generate_next_job_number(job_type)
+        logging.debug(f"Generated Job Number: {job_number} (Type: {job_type})")
 
         # 4. Create JobCard Object
         new_job_card = JobCard(
@@ -1455,11 +1605,10 @@ def create_job_card():
             equipment_id=equipment_id,
             description=description,
             technician=technician,
-            status='To Do', # Default status for new cards
+            status='To Do',
             oem_required=oem_required,
             kit_required=kit_required,
-            due_date=due_date_dt, # Store the datetime object (or None)
-            # start_datetime, end_datetime, comments are null by default
+            due_date=due_date_dt,
         )
 
         # 5. Add to Database
@@ -1471,21 +1620,13 @@ def create_job_card():
         flash(f'Job Card {job_number} created successfully!', 'success')
 
         if send_whatsapp:
-            # We need the newly created object (including relationships if needed by helper)
-            # Re-fetch might be safest if helper relies on lazy loads, or pass necessary data
-            # Since generate_whatsapp_share_url uses equipment_ref, let's pass the object
             whatsapp_url = generate_whatsapp_share_url(new_job_card)
             if whatsapp_url:
-                # Option 1: Redirect directly
-                # return redirect(whatsapp_url)
-
-                # Option 2: Flash and redirect normally (better UX)
-                 flash(f'Click <a href="{whatsapp_url}" target="_blank">here</a> to share Job Card {job_number} via WhatsApp.', 'info') # Use info level, add link
+                flash(f'Click <a href="{whatsapp_url}" target="_blank">here</a> to share Job Card {job_number} via WhatsApp.', 'info')
             else:
                 flash('Could not generate WhatsApp link.', 'warning')
 
         # 7. Redirect to the Job Card List view (or referrer)
-        # Prefer redirecting to the list so user sees the new card
         return redirect(url_for('planned_maintenance.job_card_list'))
 
     except Exception as e:
@@ -1496,7 +1637,6 @@ def create_job_card():
 
 # ==============================================================================
 # === Check Lists ===
-# ==============================================================================
 @bp.route('/checklist/new', methods=['POST'])
 def new_checklist():
     """Logs a new equipment checklist."""
@@ -1509,7 +1649,6 @@ def new_checklist():
             # *** Get the new date/time string ***
             check_date_str = request.form.get('check_date')
 
-            # *** Updated Validation ***
             if not equipment_id or not status or not check_date_str:
                 flash('Equipment, Status, and Check Date/Time are required for checklist.', 'warning')
                 return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
@@ -1574,7 +1713,6 @@ def calculate_task_due_status(task, current_time): # Accept current_time (naive 
     next_due_info = "N/A" # Will store 'Next Due at X hours/km' or 'Due on YYYY-MM-DD'
     estimated_days_info = "N/A" # Will store '~Y days' or date info for 'days' tasks
     numeric_estimated_days = None # Store the raw number for comparison
-
     # --- Timezone handling ---
     # Ensure current_time is naive UTC
     if current_time.tzinfo is not None:
@@ -1789,7 +1927,12 @@ def tasks_list():
     logging.debug("--- Entering tasks_list route ---")
     try:
         type_filter = request.args.get('type')
-        query = MaintenanceTask.query.join(Equipment)
+        query = MaintenanceTask.query.join(Equipment).filter(
+            or_(
+                MaintenanceTask.is_legal_compliance.is_(False),
+                MaintenanceTask.is_legal_compliance.is_(None)  # Handle NULL values too
+            )
+        )
         if type_filter:
             query = query.filter(Equipment.type == type_filter)
         # Fetch tasks WITH equipment eagerly loaded to avoid N+1 in loops
@@ -2071,112 +2214,53 @@ def add_usage():
 # ==============================================================================
 # === Create Job Card From Task ===
 # ==============================================================================
-@bp.route('/job_card/new_from_task/<int:task_id>', methods=['POST'])
-def new_job_card_from_task(task_id):
-    try:
-        task = MaintenanceTask.query.get_or_404(task_id)
-        technician = request.form.get('technician')
-        due_date_str = request.form.get('due_date')
-        logging.debug(f"Received due_date string from form for task {task_id}: '{due_date_str}'")
-
-        # --- <<< CHECK FOR EXISTING OPEN JOB CARD >>> ---
-        existing_open_jc = JobCard.query.filter(
-            JobCard.equipment_id == task.equipment_id,
-            JobCard.description == task.description, # Match based on task description
-            JobCard.status != 'Done'                 # Check if status is NOT 'Done'
-        ).first() # We only need to know if one exists
-
-        if existing_open_jc:
-            # An open job card for this task already exists
-            flash(f"Cannot create new job card. An open job card (#{existing_open_jc.job_number}) "
-                  f"already exists for task '{task.description}' on equipment {task.equipment_ref.code}.",
-                  "warning") # Use 'warning' or 'info' category
-            return redirect(request.referrer or url_for('planned_maintenance.dashboard')) # Redirect back
-        # --- <<< END CHECK >>> ---
 
 
-        # --- Parse the received due date string ---
-        due_date_dt = None # Initialize to None
-        if due_date_str:
-            try:
-                # Parse date only, combine with min time for naive datetime
-                parsed_date = datetime.strptime(due_date_str, '%Y-%m-%d').date()
-                due_date_dt = datetime.combine(parsed_date, time.min)
-                logging.debug(f"Parsed due_date_str '{due_date_str}' to datetime: {due_date_dt}")
-            except ValueError:
-                flash(f"Invalid due date format '{due_date_str}' received. Job card created without due date.", "warning")
-                # due_date_dt remains None
 
-        # --- Generate Job Number ---
-        job_number = generate_next_job_number() # Assumes this helper function exists
-        logging.debug(f"Generated Job Number: {job_number}")
-
-        # --- Create New Job Card (only if no existing open one was found) ---
-        job_card = JobCard(
-            job_number=job_number,
-            equipment_id=task.equipment_id,
-            description=task.description, # Pre-filled from task
-            technician=technician if technician else None,
-            status='To Do',
-            oem_required=task.oem_required,
-            kit_required=task.kit_required,
-            due_date=due_date_dt # Assign the parsed datetime object or None
-        )
-        db.session.add(job_card)
-        db.session.commit()
-        logging.info(f"Job Card {job_number} created from task {task_id} with due date {due_date_dt}.")
-
-
-        # --- Format WhatsApp message ---
-        equipment_name = task.equipment_ref.name or 'Unknown Equipment'
-        due_date_display_str = due_date_dt.strftime('%Y-%m-%d') if due_date_dt else 'Not Set'
-        whatsapp_msg = (
-            f"Job Card #{job_number} created from Task:\n"
-            f"Equipment: {equipment_name}\n"
-            f"Task: {task.description}\n"
-            f"Assigned: {technician or 'Unassigned'}\n"
-            f"OEM Required: {'Yes' if task.oem_required else 'No'}\n"
-            f"Kit Required: {'Yes' if task.kit_required else 'No'}\n"
-            f"Due Date: {due_date_display_str}"
-        )
-
-        flash(f'Job Card {job_number} created from task!', 'success')
-        encoded_msg = urlencode({'text': whatsapp_msg})
-        whatsapp_url = f"https://wa.me/?{encoded_msg}"
-        # Decide whether to redirect to WhatsApp or dashboard
-        # return redirect(whatsapp_url)
-        # Redirect back to originating page (dashboard or tasks list)
-        return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
-
-
-    except Exception as e:
-        db.session.rollback()
-        logging.error(f"Error creating job card from task {task_id}: {e}", exc_info=True)
-        flash(f"Error creating job card from task: {e}", "danger")
-        return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
-
-# --- Helper function (add this if it doesn't exist) ---
-def generate_next_job_number():
-    """Generates the next sequential job number (Example Implementation)."""
-    # IMPORTANT: This is a basic example. For production, consider locking or more robust sequence generation.
-    last_jc = JobCard.query.order_by(JobCard.id.desc()).first()
-    prefix = f"JC-{datetime.now(timezone.utc).strftime('%y')}-" # e.g., JC-24-
+def generate_next_job_number(job_type='MAINT'):
+    """
+    Generates the next sequential job number with type distinction.
+    
+    Args:
+        job_type (str): Type of job - 'MAINT' for maintenance or 'LEGAL' for legal compliance
+                       This will add a prefix to the job number
+    
+    Returns:
+        str: Formatted job number with type distinction
+    """
+    # Validate and standardize job_type
+    if job_type.upper() not in ['MAINT', 'LEGAL']:
+        logging.warning(f"Invalid job_type '{job_type}'. Defaulting to 'MAINT'.")
+        job_type = 'MAINT'
+    
+    job_type = job_type.upper()  # Ensure uppercase
+    
+    # Define prefix for the specific job type
+    if job_type == 'LEGAL':
+        type_prefix = 'LC'  # Legal Compliance
+    else:
+        type_prefix = 'JC'  # Job Card (maintenance)
+    
+    # Create date portion of the prefix
+    date_prefix = f"{datetime.now(timezone.utc).strftime('%y')}"
+    
+    # Complete prefix including type and date
+    prefix = f"{type_prefix}-{date_prefix}-"
+    
+    # Find the last job card with this prefix
+    last_jc = JobCard.query.filter(JobCard.job_number.like(f"{prefix}%")).order_by(JobCard.id.desc()).first()
+    
     next_num = 1
-    if last_jc and last_jc.job_number.startswith(prefix):
+    
+    if last_jc:
         try:
             last_num_part = last_jc.job_number[len(prefix):]
             next_num = int(last_num_part) + 1
         except (ValueError, IndexError):
-             logging.warning(f"Could not parse sequence number from last job card '{last_jc.job_number}'. Resetting sequence for prefix {prefix}.")
-             next_num = 1 # Reset if parsing fails
-    elif last_jc:
-         logging.info(f"Last job card '{last_jc.job_number}' has different prefix. Starting new sequence for {prefix}.")
-         next_num = 1
-    else: # No previous job cards at all
-         next_num = 1
-
-    return f"{prefix}{next_num:04d}" # e.g., JC-24-0001
-
+            logging.warning(f"Could not parse sequence number from last job card '{last_jc.job_number}'. Resetting sequence for prefix {prefix}.")
+            next_num = 1  # Reset if parsing fails
+    
+    return f"{prefix}{next_num:04d}"  # e.g., "JC-24-0001" or "LC-24-0001"
 # ==============================================================================
 # === Log Views ===
 # ==============================================================================
@@ -2251,3 +2335,242 @@ def usage_logs():
                            start_date=start_date_str, # Pass back filter values
                            end_date=end_date_str,
                            title='Usage Logs')
+
+# Add these routes to routes.py
+
+# ==============================================================================
+# === Legal Compliance Tasks List ===
+# ==============================================================================
+@bp.route('/legal_tasks', methods=['GET'])
+def legal_tasks_list():
+    logging.debug("--- Entering legal_tasks_list route ---")
+    try:
+        type_filter = request.args.get('type')
+        query = MaintenanceTask.query.join(Equipment).filter(MaintenanceTask.is_legal_compliance == True)
+        if type_filter:
+            query = query.filter(Equipment.type == type_filter)
+        # Fetch tasks WITH equipment eagerly loaded to avoid N+1 in loops
+        all_tasks_query = query.options(db.joinedload(MaintenanceTask.equipment_ref)).order_by(Equipment.code, Equipment.name, MaintenanceTask.id).all()
+
+        current_time_for_list = datetime.utcnow() # Naive UTC
+        logging.debug(f"Legal Tasks List using current_time: {current_time_for_list}")
+
+        tasks_by_equipment = defaultdict(list) # Use defaultdict for easier appending
+        for task in all_tasks_query:
+            # Ensure equipment_ref is loaded (should be by joinedload)
+            if not task.equipment_ref:
+                logging.error(f"Task {task.id} is missing equipment reference. Skipping.")
+                continue
+            eq_key = (task.equipment_ref.code, task.equipment_ref.name, task.equipment_ref.type)
+            # Calculate status and add attributes directly to the task object
+            status, due_info, due_date_val, last_performed_info, next_due_info, estimated_days_info = \
+                calculate_task_due_status(task, current_time_for_list)
+            task.due_status = status # Store the full status string
+            task.due_info = due_info
+            task.due_date = due_date_val
+            task.last_performed_info = last_performed_info
+            task.next_due_info = next_due_info
+            task.estimated_days_info = estimated_days_info
+            tasks_by_equipment[eq_key].append(task)
+
+        # --- Define Status Priority AND Header Label Mapping ---
+        # Priority: Lower number = higher priority
+        # Label: The text to display in the header badge
+        status_config = {
+            # Base Status Key: (Priority, Header Label)
+            'Overdue':          (1, 'Overdue'),
+            'Due Soon':         (2, 'Due Soon'),
+            'Warning':          (3, 'Warning'),
+            'Error':            (4, 'Error'), # Separate Error from Warning?
+            'Never Performed':  (5, 'Never Done'),
+            'OK':               (6, 'OK'),
+            'Unknown':          (7, 'Unknown')
+            # Add other base statuses returned by calculate_task_due_status if needed
+        }
+        default_priority = 99
+        default_label = 'Unknown'
+        ok_priority = status_config.get('OK', (default_priority, default_label))[0]
+        ok_label = status_config.get('OK', (default_priority, default_label))[1]
+
+
+        # --- Process tasks for sorting and header status ---
+        processed_tasks_data = {}
+        # Sort equipment keys alphabetically first
+        sorted_equipment_keys = sorted(tasks_by_equipment.keys())
+
+        for eq_key in sorted_equipment_keys:
+            tasks_list_for_eq = tasks_by_equipment[eq_key]
+            highest_priority_level_found = ok_priority # Start assuming OK priority
+
+            # --- First pass: Find the highest priority level in the group ---
+            for task in tasks_list_for_eq:
+                # Ensure task has a status string before processing
+                if not hasattr(task, 'due_status') or not isinstance(task.due_status, str):
+                    logging.warning(f"Task {getattr(task, 'id', 'N/A')} missing valid due_status attribute. Assigning default priority.")
+                    current_prio = default_priority
+                else:
+                    # --- CORRECTED: Extract base status reliably ---
+                    # Handle variations like 'Overdue (First)', 'Due Soon (First)', 'Unknown (No Usage)' etc.
+                    # We want the core status word recognized by status_config keys
+                    current_status_str = task.due_status # e.g., "Due Soon (First)"
+                    current_prio = default_priority # Default if no match found below
+                    matched_base = None
+
+                    # Check for specific keywords IN ORDER OF PRIORITY (most specific first)
+                    # This ensures "Due Soon" is caught before just "Due" if that were a key
+                    if 'Overdue' in current_status_str: matched_base = 'Overdue'
+                    elif 'Due Soon' in current_status_str: matched_base = 'Due Soon'
+                    elif 'Warning' in current_status_str: matched_base = 'Warning'
+                    elif 'Error' in current_status_str: matched_base = 'Error'
+                    elif 'Never Performed' in current_status_str: matched_base = 'Never Performed'
+                    elif 'OK' in current_status_str: matched_base = 'OK' # Must be checked after more specific ones
+                    elif 'Unknown' in current_status_str: matched_base = 'Unknown'
+                    # Add elif for other specific statuses if needed
+
+                    # Get priority from config if a base status was matched
+                    if matched_base and matched_base in status_config:
+                        current_prio = status_config[matched_base][0]
+                    else:
+                        # Log if status wasn't mapped - indicates potential need to update status_config
+                         logging.warning(f"Status '{current_status_str}' for task {task.id} did not map to a known base status in status_config. Using default priority.")
+                         # current_prio remains default_priority
+
+                # Update the highest priority level found so far
+                if current_prio < highest_priority_level_found:
+                    highest_priority_level_found = current_prio
+                    logging.debug(f"  Eq {eq_key}: New highest prio level found: {highest_priority_level_found} from task {task.id} (status: {task.due_status})")
+
+
+            # --- Determine the final header label based on the highest priority level found ---
+            final_header_label = default_label # Default
+            # Find the label corresponding to the highest priority level achieved
+            for base_status, (prio, label) in status_config.items():
+                if prio == highest_priority_level_found:
+                    final_header_label = label
+                    break # Found the matching label
+            logging.debug(f"Eq {eq_key}: Final highest prio level: {highest_priority_level_found}, Assigned Header Label: '{final_header_label}'")
+
+            # --- Second pass (or combined): Sort the tasks list itself ---
+            # Use a stable sort key function referencing the config
+            def get_tasks_sort_key(task_item):
+                sort_prio = default_priority # Default
+                sort_matched_base = None
+                if hasattr(task_item, 'due_status') and isinstance(task_item.due_status, str):
+                    status_str = task_item.due_status
+                    # Use same matching logic as priority finding for consistency
+                    if 'Overdue' in status_str: sort_matched_base = 'Overdue'
+                    elif 'Due Soon' in status_str: sort_matched_base = 'Due Soon'
+                    elif 'Warning' in status_str: sort_matched_base = 'Warning'
+                    elif 'Error' in status_str: sort_matched_base = 'Error'
+                    elif 'Never Performed' in status_str: sort_matched_base = 'Never Performed'
+                    elif 'OK' in status_str: sort_matched_base = 'OK'
+                    elif 'Unknown' in status_str: sort_matched_base = 'Unknown'
+
+                    if sort_matched_base and sort_matched_base in status_config:
+                        sort_prio = status_config[sort_matched_base][0]
+
+                # Add secondary sort criteria if needed (e.g., by due date/remaining value within the same status)
+                # return (sort_prio, task_item.due_date or date.max) # Example secondary sort
+                return sort_prio
+
+            try:
+                 tasks_list_for_eq.sort(key=get_tasks_sort_key)
+            except Exception as eq_sort_exc:
+                logging.error(f"Error sorting tasks for equipment {eq_key}: {eq_sort_exc}", exc_info=True)
+                # Use unsorted list on error
+
+            # Store the sorted list and the final header status label
+            processed_tasks_data[eq_key] = {
+                'tasks': tasks_list_for_eq,
+                'header_status': final_header_label # Use the label derived from the highest priority
+            }
+
+        equipment_types = db.session.query(Equipment.type).distinct().order_by(Equipment.type).all()
+        equipment_types = [t[0] for t in equipment_types]
+
+        logging.debug("--- Rendering pm_legal_tasks.html ---")
+        return render_template(
+            'pm_legal_tasks.html',
+            tasks_data=processed_tasks_data, # Pass the new structure
+            equipment_types=equipment_types,
+            type_filter=type_filter,
+            title='Legal Compliance Tasks'
+        )
+    except Exception as e:
+        logging.error(f"--- Error loading legal_tasks_list page: {e} ---", exc_info=True)
+        flash(f"Error loading legal compliance tasks: {e}", "danger")
+        # Pass empty data structure to avoid template errors
+        return render_template('pm_legal_tasks.html',
+                               tasks_data={},
+                               equipment_types=[],
+                               type_filter=request.args.get('type'),
+                               title='Legal Compliance Tasks',
+                               error=True)
+
+# ==============================================================================
+# === Add/Edit Legal Compliance Task ===
+# ==============================================================================
+@bp.route('/legal_task/add', methods=['GET', 'POST'])
+def add_legal_task():
+    """Displays form to add a new legal compliance task (GET) or processes addition (POST)."""
+    if request.method == 'POST':
+        try:
+            equipment_id = request.form.get('equipment_id', type=int)
+            description = request.form.get('description')
+            interval_type = request.form.get('interval_type')
+            interval_value_str = request.form.get('interval_value')
+            oem_required = 'oem_required' in request.form
+            kit_required = 'kit_required' in request.form
+
+            # Validation
+            errors = []
+            if not equipment_id: errors.append("Equipment is required.")
+            if not description: errors.append("Description is required.")
+            if not interval_type: errors.append("Interval Type is required.")
+            if not interval_value_str: errors.append("Interval Value is required.")
+
+            interval_value = 0
+            if interval_value_str:
+                try:
+                    interval_value = int(interval_value_str)
+                    if interval_value <= 0:
+                        errors.append("Interval Value must be positive.")
+                except ValueError:
+                    errors.append("Interval Value must be a whole number.")
+
+            if errors:
+                for error in errors: flash(error, 'warning')
+                # Re-render form with errors (need equipment list again)
+                equipment_list = Equipment.query.order_by(Equipment.name).all()
+                return render_template('pm_legal_task_form.html', equipment=equipment_list, title="Add New Legal Compliance Task")
+
+            # Create new task with is_legal_compliance=True
+            new_task = MaintenanceTask(
+                equipment_id=equipment_id,
+                description=description,
+                interval_type=interval_type,
+                interval_value=interval_value,
+                oem_required=oem_required,
+                kit_required=kit_required,
+                is_legal_compliance=True  # Set legal compliance flag to True
+            )
+            db.session.add(new_task)
+            db.session.commit()
+            flash(f'Legal compliance task "{description}" added successfully!', 'success')
+            return redirect(url_for('planned_maintenance.legal_tasks_list'))
+
+        except Exception as e:
+            db.session.rollback()
+            flash(f"Error adding legal compliance task: {e}", "danger")
+            # Re-render form on error (need equipment list again)
+            equipment_list = Equipment.query.order_by(Equipment.name).all()
+            return render_template('pm_legal_task_form.html', equipment=equipment_list, title="Add New Legal Compliance Task")
+
+    # --- Handle GET Request ---
+    try:
+        equipment_list = Equipment.query.order_by(Equipment.name).all()
+    except Exception as e:
+        flash(f"Error loading equipment list for form: {e}", "danger")
+        equipment_list = []
+
+    return render_template('pm_legal_task_form.html', equipment=equipment_list, title="Add New Legal Compliance Task")

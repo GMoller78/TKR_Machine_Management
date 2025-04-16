@@ -1,0 +1,63 @@
+{% extends "pm_base.html" %}
+
+{% block title %}{{ title }} - {{ super() }}{% endblock %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+
+<div class="card">
+    <div class="card-body">
+         <form method="POST" action="{{ url_for('planned_maintenance.add_legal_task') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+
+            <div class="mb-3">
+                <label for="task_equipment_id" class="form-label">Equipment <span class="text-danger">*</span></label>
+                <select class="form-select" id="task_equipment_id" name="equipment_id" required>
+                    <option value="" selected disabled>Select Equipment...</option>
+                    {% for item in equipment %}
+                        <option value="{{ item.id }}">{{ item.code }} - {{ item.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label for="task_description" class="form-label">Task Description <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" id="task_description" name="description" required placeholder="e.g., Fire Extinguisher Check, Wheel Torque Check">
+            </div>
+
+             <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="task_interval_type" class="form-label">Interval Type <span class="text-danger">*</span></label>
+                    <select class="form-select" id="task_interval_type" name="interval_type" required>
+                        <option value="" selected disabled>Select Type...</option>
+                        <option value="hours">Hours</option>
+                        <option value="km">Kilometers (KM)</option>
+                        <option value="days">Days</option>
+                    </select>
+                </div>
+                 <div class="col-md-6 mb-3">
+                     <label for="task_interval_value" class="form-label">Interval Value <span class="text-danger">*</span></label>
+                     <input type="number" class="form-control" id="task_interval_value" name="interval_value" min="1" required placeholder="e.g., 30 or 90">
+                     <div class="form-text">Enter the number corresponding to the Interval Type (e.g., 30 days, 90 days).</div>
+                 </div>
+            </div>
+
+             <div class="row">
+                <div class="col-md-6 mb-3 form-check pt-3">
+                    <input type="checkbox" class="form-check-input" id="task_oem_required" name="oem_required">
+                    <label class="form-check-label" for="task_oem_required">OEM Presence Required?</label>
+                </div>
+                <div class="col-md-6 mb-3 form-check pt-3">
+                    <input type="checkbox" class="form-check-input" id="task_kit_required" name="kit_required">
+                    <label class="form-check-label" for="task_kit_required">Specific Supplier Kit Required?</label>
+                </div>
+            </div>
+
+             <hr>
+            <button type="submit" class="btn btn-primary">Save Legal Task</button>
+             <a href="{{ url_for('planned_maintenance.legal_tasks_list') }}" class="btn btn-secondary">Cancel</a>
+         </form>
+    </div>
+</div>
+
+{% endblock %}

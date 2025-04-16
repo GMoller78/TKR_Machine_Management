@@ -87,14 +87,13 @@
 {# It should be passed from the dashboard route and the job_card_list route #}
 {% if all_equipment is defined %} {# Check if the variable exists #}
 <div class="modal fade" id="newJobCardModal" tabindex="-1" aria-labelledby="newJobCardModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg"> {# Larger modal for more fields #}
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="newJobCardModalLabel"><i class="bi bi-journal-plus me-2"></i>Create New Job Card</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                {# Use novalidate and rely on backend + HTML5 default validation hints #}
                 <form method="POST" action="{{ url_for('planned_maintenance.create_job_card') }}" id="newJobCardForm" novalidate>
                     {# CSRF Token #}
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
@@ -141,10 +140,17 @@
                                         OEM Required?
                                     </label>
                                 </div>
-                                <div class="form-check">
+                                <div class="form-check mb-2">
                                     <input class="form-check-input" type="checkbox" value="true" id="new_jc_kit_required" name="kit_required">
                                     <label class="form-check-label" for="new_jc_kit_required">
                                         Kit Required?
+                                    </label>
+                                </div>
+                                <!-- New Legal Compliance Checkbox -->
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="true" id="new_jc_is_legal" name="is_legal_compliance">
+                                    <label class="form-check-label" for="new_jc_is_legal">
+                                        <span class="text-info">Legal Compliance Job?</span>
                                     </label>
                                 </div>
                             </div>

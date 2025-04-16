@@ -64,6 +64,7 @@ class MaintenanceTask(db.Model):
     last_performed = db.Column(db.DateTime, nullable=True) # Naive or Aware depends on app logic
     last_performed_usage_value = db.Column(db.Float, nullable=True)
     plan_entries = db.relationship('MaintenancePlanEntry', backref='task', lazy='dynamic') # Added relationship
+    is_legal_compliance = db.Column(db.Boolean, default=False, nullable=False, index=True)
 
     # --- REMOVED explicit ForeignKeyConstraint here as it's now inline ---
     # __table_args__ = (
@@ -72,7 +73,8 @@ class MaintenanceTask(db.Model):
     # --- END REMOVAL ---
 
     def __repr__(self):
-        return f'<MaintenanceTask {self.description}>'
+        task_type = "[Legal]" if self.is_legal_compliance else "[Maint]"
+        return f'<MaintenanceTask {task_type} {self.description}>' # Added type indicator
 
     def to_dict(self, include_equipment=False):
         """Returns a dictionary representation for API usage."""
@@ -86,6 +88,7 @@ class MaintenanceTask(db.Model):
             'kit_required': self.kit_required,
             'last_performed': format_datetime_iso(self.last_performed),
             'last_performed_usage_value': self.last_performed_usage_value,
+            'is_legal_compliance': self.is_legal_compliance,
         }
         if include_equipment and self.equipment_ref:
             data['equipment'] = self.equipment_ref.to_dict()
@@ -108,11 +111,17 @@ class JobCard(db.Model):
     comments = db.Column(db.Text, nullable=True)
     parts_used = db.relationship('JobCardPart', back_populates='job_card', lazy='dynamic', cascade='all, delete-orphan')
 
-    # --- REMOVED explicit ForeignKeyConstraint here as it's now inline ---
-    # __table_args__ = (
-    #     db.ForeignKeyConstraint(['equipment_id'], ['equipment.id'], name='fk_job_card_equipment_id'),
-    # )
-    # --- END REMOVAL ---
+    @property
+    def is_legal_compliance(self):
+        """Determine if this is a legal compliance job card based on job number prefix."""
+        if self.job_number and self.job_number.startswith('LC-'):
+            return True
+        return False
+
+    @property
+    def job_type_display(self):
+        """Return a display string for the job type."""
+        return "Legal Compliance" if self.is_legal_compliance else "Maintenance"
 
     def __repr__(self):
         return f'<JobCard {self.job_number}>'
@@ -132,6 +141,8 @@ class JobCard(db.Model):
             'start_datetime': format_datetime_iso(self.start_datetime),
             'end_datetime': format_datetime_iso(self.end_datetime),
             'comments': self.comments,
+            'is_legal_compliance': self.is_legal_compliance, 
+            'job_type_display': self.job_type_display,
         }
         if include_equipment and self.equipment_ref:
             data['equipment'] = self.equipment_ref.to_dict()
@@ -403,12 +414,10 @@ class MaintenancePlanEntry(db.Model):
         if include_equipment and self.equipment:
              data['equipment'] = self.equipment.to_dict()
         if include_task_details and self.task:
-             # Avoid infinite recursion if task.to_dict includes plan entries
              data['task_details'] = {
                  'id': self.task.id,
                  'description': self.task.description,
+                 'is_legal_compliance': self.task.is_legal_compliance, # Add flag here
                  # Add other relevant task fields if needed
              }
-             # Or call task.to_dict() if safe:
-             # data['task_details'] = self.task.to_dict()
         return data

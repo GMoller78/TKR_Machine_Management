@@ -1,156 +1,232 @@
-{# tkr_system/app/templates/pm_job_card_detail.html #}
+{# pm_job_card_detail.html with job type information #}
 {% extends "pm_base.html" %}
 
-{% block title %}{{ title }} - {{ super() }}{% endblock %}
-
-{% block styles %}
-{{ super() }}
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-<style>
-    .detail-card { margin-top: 1.5rem; }
-    .detail-card .card-header { font-weight: 600; }
-    .list-group-item span.label {
-        font-weight: 500;
-        min-width: 150px; /* Adjust as needed */
-        display: inline-block;
-        color: #555;
-    }
-    .list-group-item span.value {
-        color: #333;
-    }
-    .parts-list th { font-weight: 600; }
-</style>
-{% endblock %}
+{% block title %}Job Card {{ job_card.job_number }} - {{ super() }}{% endblock %}
 
 {% block content %}
-<div class="container-fluid">
-    {# -- Row for Title and Actions -- #}
+<div class="container">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1 class="mb-0">{{ title }}</h1>
+        <h1>
+            Job Card: {{ job_card.job_number }}
+            {% set is_legal = job_card.job_number.startswith('LC-') %}
+            <span class="badge {% if is_legal %}bg-info{% else %}bg-secondary{% endif %}">
+                {{ "Legal Compliance" if is_legal else "Maintenance" }}
+            </span>
+        </h1>
         <div>
-            {# -- NEW Print Button -- #}
-            <button class="btn btn-secondary me-2 d-print-none" onclick="window.print();">
-                <i class="bi bi-printer me-1"></i> Print Job Card
-            </button>
-             {# -- Link back to dashboard or relevant list -- #}
-            <a href="{{ url_for('planned_maintenance.dashboard') }}" class="btn btn-outline-secondary d-print-none">
-                <i class="bi bi-arrow-left me-1"></i> Back to Dashboard
+            <a href="{{ url_for('planned_maintenance.job_card_list') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left me-1"></i> Back to List
             </a>
-            {# Optional: Re-add WhatsApp share button here if needed, potentially using session flash #}
+            {% if job_card.status != 'Done' %}
+                <a href="{{ url_for('planned_maintenance.complete_job_card', id=job_card.id) }}" class="btn btn-success">
+                    <i class="bi bi-check-circle me-1"></i> Complete Job
+                </a>
+            {% endif %}
         </div>
     </div>
-    {# -- END Row for Title and Actions -- #}
 
     <div class="row">
-        {# Job Card Info Column #}
-        <div class="col-md-6 mb-4">
-            <div class="card h-100"> {# Use h-100 for equal height if needed #}
-                <div class="card-header">
-                    Job Details
+        <!-- Job Card Details -->
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-info-circle me-2"></i>Job Details</span>
+                    <span class="badge {% if job_card.status == 'To Do' %}bg-warning text-dark
+                                      {% elif job_card.status == 'In Progress' %}bg-info text-dark
+                                      {% elif job_card.status == 'Done' %}bg-success
+                                      {% else %}bg-secondary{% endif %}">
+                        {{ job_card.status }}
+                    </span>
                 </div>
                 <div class="card-body">
-                     <dl class="row mb-0">
-                        <dt class="col-sm-4">Job Number:</dt>
-                        <dd class="col-sm-8">{{ job_card.job_number }}</dd>
-
-                        <dt class="col-sm-4">Status:</dt>
-                        <dd class="col-sm-8">
-                            <span class="badge {% if job_card.status == 'Done' %}bg-success{% elif job_card.status == 'To Do' %}bg-warning text-dark{% elif job_card.status == 'In Progress' %}bg-info text-dark{% else %}bg-secondary{% endif %}">
-                                {{ job_card.status }}
-                            </span>
-                        </dd>
-
-                        <dt class="col-sm-4">Description:</dt>
-                        <dd class="col-sm-8">{{ job_card.description }}</dd>
-
-                        <dt class="col-sm-4">Technician:</dt>
-                        <dd class="col-sm-8">{{ job_card.technician or 'N/A' }}</dd>
-
-                        <dt class="col-sm-4">Due Date:</dt>
-                        <dd class="col-sm-8">{{ job_card.due_date.strftime('%Y-%m-%d') if job_card.due_date else 'Not Set' }}</dd>
-
-                        {# Display completion details only if 'Done' #}
-                        {% if job_card.status == 'Done' %}
-                            <dt class="col-sm-4">Checked Out:</dt>
-                            <dd class="col-sm-8">{{ job_card.start_datetime.strftime('%Y-%m-%d %H:%M') if job_card.start_datetime else 'N/A' }}</dd>
-
-                            <dt class="col-sm-4">Checked In:</dt>
-                            <dd class="col-sm-8">{{ job_card.end_datetime.strftime('%Y-%m-%d %H:%M') if job_card.end_datetime else 'N/A' }}</dd>
-
-                            <dt class="col-sm-4">Comments:</dt>
-                            <dd class="col-sm-8"><pre class="mb-0" style="white-space: pre-wrap;">{{ job_card.comments or 'None' }}</pre></dd> {# Use <pre> for comments #}
-                         {% endif %}
-
-                        <dt class="col-sm-4">OEM Required:</dt>
-                        <dd class="col-sm-8">{{ 'Yes' if job_card.oem_required else 'No' }}</dd>
-
-                        <dt class="col-sm-4">Kit Required:</dt>
-                        <dd class="col-sm-8">{{ 'Yes' if job_card.kit_required else 'No' }}</dd>
-                    </dl>
+                    <table class="table table-sm">
+                        <tbody>
+                            <tr>
+                                <th style="width: 30%">Equipment:</th>
+                                <td>{{ job_card.equipment_ref.code }} - {{ job_card.equipment_ref.name }}</td>
+                            </tr>
+                            <tr>
+                                <th>Description:</th>
+                                <td>{{ job_card.description }}</td>
+                            </tr>
+                            <tr>
+                                <th>Job Type:</th>
+                                <td>
+                                    {% set is_legal = job_card.job_number.startswith('LC-') %}
+                                    <span class="badge {% if is_legal %}bg-info{% else %}bg-secondary{% endif %}">
+                                        {{ "Legal Compliance" if is_legal else "Maintenance" }}
+                                    </span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Due Date:</th>
+                                <td>{{ job_card.due_date.strftime('%Y-%m-%d') if job_card.due_date else 'Not Set' }}</td>
+                            </tr>
+                            <tr>
+                                <th>Technician:</th>
+                                <td>{{ job_card.technician or 'Unassigned' }}</td>
+                            </tr>
+                            <tr>
+                                <th>OEM Required:</th>
+                                <td>{{ 'Yes' if job_card.oem_required else 'No' }}</td>
+                            </tr>
+                            <tr>
+                                <th>Kit Required:</th>
+                                <td>{{ 'Yes' if job_card.kit_required else 'No' }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
 
-        {# Equipment & Parts Column #}
-        <div class="col-md-6 mb-4">
-             {# Equipment Details Card #}
-             <div class="card mb-4">
-                 <div class="card-header">Equipment Details</div>
-                 <div class="card-body">
-                      <dl class="row mb-0">
-                         <dt class="col-sm-4">Code:</dt>
-                         <dd class="col-sm-8">{{ job_card.equipment_ref.code }}</dd>
+        <!-- Completion/Timeline Details -->
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <i class="bi bi-clock-history me-2"></i>Timeline
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <tbody>
+                            <tr>
+                                <th style="width: 30%">Created:</th>
+                                <td>
+                                    {% if job_card.start_datetime %}
+                                        {{ job_card.start_datetime.strftime('%Y-%m-%d %H:%M') }}
+                                    {% else %}
+                                        <span class="text-muted">Not recorded</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Completed:</th>
+                                <td>
+                                    {% if job_card.end_datetime %}
+                                        {{ job_card.end_datetime.strftime('%Y-%m-%d %H:%M') }}
+                                    {% else %}
+                                        {% if job_card.status == 'Done' %}
+                                            <span class="text-muted">Time not recorded</span>
+                                        {% else %}
+                                            <span class="badge bg-warning text-dark">Not Completed</span>
+                                        {% endif %}
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Duration:</th>
+                                <td>
+                                    {% if job_card.start_datetime and job_card.end_datetime %}
+                                        {% set duration = (job_card.end_datetime - job_card.start_datetime).total_seconds() %}
+                                        {% set hours = (duration // 3600)|int %}
+                                        {% set minutes = ((duration % 3600) // 60)|int %}
+                                        {{ hours }} hours, {{ minutes }} minutes
+                                    {% else %}
+                                        <span class="text-muted">N/A</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Comments:</th>
+                                <td>
+                                    {% if job_card.comments %}
+                                        {{ job_card.comments|nl2br }}
+                                    {% else %}
+                                        <span class="text-muted">No comments</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
 
-                         <dt class="col-sm-4">Name:</dt>
-                         <dd class="col-sm-8">{{ job_card.equipment_ref.name }}</dd>
+    <!-- Parts Used -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <i class="bi bi-tools me-2"></i>Parts Used
+        </div>
+        <div class="card-body">
+            {% set parts = job_card.parts_used.all() %}
+            {% if parts %}
+                <div class="table-responsive">
+                    <table class="table table-striped table-sm">
+                        <thead>
+                            <tr>
+                                <th>Part Number</th>
+                                <th>Part Name</th>
+                                <th>Quantity</th>
+                                <th>Store</th>
+                                <th>Supplier</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for part_assoc in parts %}
+                                <tr>
+                                    <td>{{ part_assoc.part.part_number or 'N/A' }}</td>
+                                    <td>{{ part_assoc.part.name }}</td>
+                                    <td>{{ part_assoc.quantity }}</td>
+                                    <td>{{ part_assoc.part.store }}</td>
+                                    <td>{{ part_assoc.part.supplier_ref.name if part_assoc.part.supplier_ref else 'N/A' }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted">No parts were used for this job.</p>
+            {% endif %}
+        </div>
+    </div>
 
-                         <dt class="col-sm-4">Type:</dt>
-                         <dd class="col-sm-8">{{ job_card.equipment_ref.type }}</dd>
-
-                         <dt class="col-sm-4">Status:</dt>
-                         <dd class="col-sm-8">{{ job_card.equipment_ref.status }}</dd>
-                     </dl>
-                 </div>
-             </div>
-
-             {# Parts Used Card (only show if parts exist or JC is done) #}
-             {% if job_card.parts_used or job_card.status == 'Done' %}
-                <div class="card">
-                    <div class="card-header">Parts Used</div>
-                    <div class="card-body p-0"> {# Remove padding for table #}
-                        {% if job_card.parts_used %}
-                            <div class="table-responsive">
-                                <table class="table table-sm table-striped mb-0">
-                                    <thead>
-                                        <tr>
-                                            <th>Part Name</th>
-                                            <th>Store</th>
-                                            <th>Supplier</th>
-                                            <th>Quantity</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for jc_part in job_card.parts_used %}
-                                            <tr>
-                                                <td>{{ jc_part.part.name }}</td>
-                                                <td>{{ jc_part.part.store }}</td>
-                                                <td>{{ jc_part.part.supplier_ref.name if jc_part.part.supplier_ref else 'N/A' }}</td>
-                                                <td>{{ jc_part.quantity }}</td>
-                                            </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                            </div>
-                        {% else %}
-                             <div class="card-body"> {# Add padding back if no parts #}
-                                <p class="text-muted mb-0">No parts were recorded for this job card.</p>
-                            </div>
-                        {% endif %}
+    <!-- Action Buttons -->
+    <div class="mb-5 d-flex gap-2">
+        {% if job_card.status != 'Done' %}
+            <a href="{{ url_for('planned_maintenance.edit_job_card', id=job_card.id) }}" class="btn btn-primary">
+                <i class="bi bi-pencil me-1"></i> Edit Job Card
+            </a>
+            <a href="{{ url_for('planned_maintenance.complete_job_card', id=job_card.id) }}" class="btn btn-success">
+                <i class="bi bi-check-circle me-1"></i> Complete Job
+            </a>
+        {% endif %}
+        
+        <!-- Share Button -->
+        {% set whatsapp_url = generate_whatsapp_share_url(job_card) if 'generate_whatsapp_share_url' in globals() else None %}
+        {% if whatsapp_url %}
+            <a href="{{ whatsapp_url }}" class="btn btn-outline-success" target="_blank">
+                <i class="bi bi-whatsapp me-1"></i> Share via WhatsApp
+            </a>
+        {% endif %}
+        
+        {% if job_card.status != 'Done' %}
+            <button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteJobCardModal">
+                <i class="bi bi-trash me-1"></i> Delete
+            </button>
+            
+            <!-- Delete Confirmation Modal -->
+            <div class="modal fade" id="deleteJobCardModal" tabindex="-1" aria-labelledby="deleteJobCardModalLabel" aria-hidden="true">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="deleteJobCardModalLabel">Confirm Delete</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            Are you sure you want to delete job card #{{ job_card.job_number }}?
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <form action="{{ url_for('planned_maintenance.delete_job_card', id=job_card.id) }}" method="POST">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                                <button type="submit" class="btn btn-danger">Delete</button>
+                            </form>
+                        </div>
                     </div>
                 </div>
-             {% endif %}
-        </div>
-    </div> {# End row #}
-
-</div> {# End Container-fluid #}
+            </div>
+        {% endif %}
+    </div>
+</div>
 {% endblock %}
