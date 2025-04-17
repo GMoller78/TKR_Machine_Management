@@ -576,6 +576,7 @@ def maintenance_plan_detail_view():
 # ==============================================================================
 # === Dashboard Route ===
 # ==============================================================================
+
 @bp.route('/')
 def dashboard():
     logging.debug("--- Entering dashboard route ---")
@@ -616,33 +617,7 @@ def dashboard():
         # --- Generate WhatsApp URLs for Job Cards ---
         logging.debug(f"Generating WhatsApp URLs for {len(open_job_cards)} open job cards...")
         for jc in open_job_cards:
-            try:
-                # Format the message details (handle None values)
-                if jc.equipment_ref:
-                    equipment_name = f"{jc.equipment_ref.code} - {jc.equipment_ref.name}"
-                else:
-                     equipment_name = "Unknown Equipment" # Fallback if relation fails
-                due_date_str = jc.due_date.strftime('%Y-%m-%d') if jc.due_date else 'Not Set'
-                technician_str = jc.technician or 'Unassigned'
-
-                # Construct the message string (using markdown for WhatsApp)
-                whatsapp_msg = (
-                    f"Job Card Details:\n"
-                    f"*Number:* {jc.job_number}\n"
-                    f"*Equipment:* {equipment_name}\n"
-                    f"*Task:* {jc.description}\n"
-                    f"*Status:* {jc.status}\n"
-                    f"*Assigned:* {technician_str}\n"
-                    f"*Due:* {due_date_str}"
-                    # Add other details if desired
-                )
-                encoded_msg = urlencode({'text': whatsapp_msg})
-                jc.whatsapp_share_url = f"https://wa.me/?{encoded_msg}" # Assign URL to temporary attribute
-                logging.debug(f"  Generated URL for JC {jc.job_number}")
-            except Exception as url_gen_err:
-                logging.error(f"Error generating WhatsApp URL for JC {jc.id}: {url_gen_err}", exc_info=True)
-                jc.whatsapp_share_url = None # Set to None on error
-
+            jc.whatsapp_share_url = generate_whatsapp_share_url(jc)
 
         # 3. Process Maintenance Tasks
         logging.debug("Processing maintenance tasks for status...")
@@ -660,8 +635,9 @@ def dashboard():
         ).all()
 
         # 3.2 Process legal compliance tasks (is_legal_compliance=True)
-        all_legal_tasks = MaintenanceTask.query.filter(
-            MaintenanceTask.is_legal_compliance.is_(True)
+        all_legal_tasks = MaintenanceTask.query.join(Equipment).filter(
+            MaintenanceTask.is_legal_compliance.is_(True),
+            Equipment.status == 'Operational'  # Only consider operational equipment for legal tasks
         ).options(
             db.joinedload(MaintenanceTask.equipment_ref)
         ).order_by(
@@ -701,6 +677,10 @@ def dashboard():
             if include_task:
                 tasks_with_status_filtered.append(task)
 
+        logging.debug(f"Filtered tasks list has {len(tasks_with_status_filtered)} tasks")
+        for task in tasks_with_status_filtered:
+            logging.debug(f"Filtered task included: ID {task.id} - Status: {task.due_status}")
+
         # Process legal compliance tasks
         logging.debug("Calculating legal compliance task statuses for dashboard...")
         for task in all_legal_tasks:
@@ -730,7 +710,16 @@ def dashboard():
             if include_task:
                 legal_tasks_with_status_filtered.append(task)
                 
-        # Sort both task lists based on severity
+        logging.debug("=== FILTERED TASKS DEBUG ===")
+        logging.debug(f"tasks_with_status_filtered count: {len(tasks_with_status_filtered)}")
+        for idx, task in enumerate(tasks_with_status_filtered):
+            logging.debug(f"Task #{idx+1} - ID: {task.id}, Status: {task.due_status}, Description: {task.description}")
+
+        logging.debug("=== LEGAL TASKS DEBUG ===")
+        logging.debug(f"legal_tasks_with_status_filtered count: {len(legal_tasks_with_status_filtered)}")
+        for idx, task in enumerate(legal_tasks_with_status_filtered):
+            logging.debug(f"Legal Task #{idx+1} - ID: {task.id}, Status: {task.due_status}, Description: {task.description}")
+# Sort both task lists based on severity
         sort_order_map = {
             'Overdue': 1, 'Due Soon': 2, 'Warning': 3,
             'Error': 4, 'Unknown': 99
@@ -759,45 +748,16 @@ def dashboard():
         
         logging.debug(f"Finished calculating task statuses. {len(tasks_with_status_filtered)} tasks included for dashboard display.")
 
-        # Sort the filtered tasks based on severity (Overdue > Due Soon > Warning)
-        sort_order_map = {
-            'Overdue': 1, 'Due Soon': 2, 'Warning': 3,
-            # Add others if they can appear in filtered list and need specific order
-            'Error': 4, 'Unknown': 99
-        }
-        default_sort_prio = 100
-
-        def get_sort_key(task_item):
-            status_str = getattr(task_item, 'due_status', 'Unknown')
-            if not isinstance(status_str, str): status_str = 'Unknown'
-            # Extract the primary status keyword for sorting
-            prio = default_sort_prio
-            for key, sort_prio in sort_order_map.items():
-                if key in status_str: # Check if keyword is present
-                    prio = sort_prio
-                    break # Use first match (assuming Overdue/Due Soon/Warning are distinct enough)
-            # Optional secondary sort key (e.g., by due date if available)
-            secondary_key = task_item.due_date if task_item.due_date else datetime.max.replace(tzinfo=None) # Ensure comparable type
-            return (prio, secondary_key)
-
-        try:
-            tasks_with_status_filtered.sort(key=get_sort_key)
-            logging.debug("Sorted filtered tasks for dashboard successfully.")
-        except Exception as task_sort_exc:
-            logging.error(f"Error sorting filtered tasks: {task_sort_exc}", exc_info=True)
-            # Proceed with unsorted list in case of error
-
         # 4. Prepare Recent Activities
         logging.debug("Aggregating recent activities...")
         recent_activities = []
-        limit_count = 15 # How many recent items to fetch/show
+        limit_count = 25 # Show more activities in the dedicated tab
 
-        # Fetch recent items (adjust models and fields as needed)
-        try: # Wrap aggregation in try/except
+        # Fetch recent items 
+        try:
             latest_checklists = Checklist.query.options(db.joinedload(Checklist.equipment_ref)).order_by(Checklist.check_date.desc()).limit(limit_count).all()
             recent_usage_logs = UsageLog.query.options(db.joinedload(UsageLog.equipment_ref)).order_by(UsageLog.log_date.desc()).limit(limit_count).all()
-            # Fetch recent job cards - use creation time (start_datetime or ID) and completion time (end_datetime)
-            recent_job_cards = JobCard.query.options(db.joinedload(JobCard.equipment_ref)).order_by(JobCard.id.desc()).limit(limit_count * 2).all() # Fetch more initially
+            recent_job_cards = JobCard.query.options(db.joinedload(JobCard.equipment_ref)).order_by(JobCard.id.desc()).limit(limit_count * 2).all()
 
             activity_list = []
 
@@ -822,13 +782,13 @@ def dashboard():
                     })
 
             for jc in recent_job_cards:
-                # Creation Activity (Use start_datetime if available, else maybe creation from ID?)
-                create_ts = jc.start_datetime # This might be set later, consider ID or another field?
-                if create_ts: # Or always add based on ID?
+                # Creation Activity
+                create_ts = jc.start_datetime
+                if create_ts:
                      if create_ts.tzinfo is not None: create_ts = create_ts.astimezone(timezone.utc).replace(tzinfo=None)
                      activity_list.append({
                          'type': 'job_card_created', 'timestamp': create_ts,
-                         'description': f"Job Card {jc.job_number} created for {jc.equipment_ref.code}",
+                         'description': f"Job Card {jc.job_number} created for {jc.equipment_ref.code} - {jc.equipment_ref.name}",
                          'details': jc
                      })
 
@@ -838,7 +798,7 @@ def dashboard():
                     if complete_ts.tzinfo is not None: complete_ts = complete_ts.astimezone(timezone.utc).replace(tzinfo=None)
                     activity_list.append({
                          'type': 'job_card_completed', 'timestamp': complete_ts,
-                         'description': f"Job Card {jc.job_number} completed for {jc.equipment_ref.code}",
+                         'description': f"Job Card {jc.job_number} completed for {jc.equipment_ref.code} - {jc.equipment_ref.name}",
                          'details': jc
                      })
 
@@ -856,9 +816,8 @@ def dashboard():
              flash("Could not load recent activity.", "warning")
              recent_activities = [] # Ensure empty list on error
 
-
         # 5. Render Template
-        logging.debug("--- Rendering pm_dashboard.html ---")
+        logging.debug("--- Rendering pm_dashboard.html with tab based interface ---")
         return render_template(
             'pm_dashboard.html',
             title='PM Dashboard',
@@ -885,8 +844,10 @@ def dashboard():
                                all_equipment=[],
                                job_cards=[],
                                tasks=[],
+                               legal_tasks=[],
                                recent_activities=[],
-                               today=date.today()) # Provide default date object on error
+                               today=date.today(),
+                               yesterday=date.today() - timedelta(days=1)) # Provide default date objects on error
 
 @bp.route('/equipment')
 def equipment_list():
@@ -2472,14 +2433,29 @@ def usage_logs():
 # ==============================================================================
 # === Legal Compliance Tasks List ===
 # ==============================================================================
+
 @bp.route('/legal_tasks', methods=['GET'])
 def legal_tasks_list():
     logging.debug("--- Entering legal_tasks_list route ---")
     try:
         type_filter = request.args.get('type')
+        status_filter = request.args.get('status')
+        
+        # First join Equipment to get access to its properties
         query = MaintenanceTask.query.join(Equipment).filter(MaintenanceTask.is_legal_compliance == True)
+        
+        # Add filter for operational equipment only (unless overridden by status filter)
+        if status_filter:
+            # If a specific status is requested, filter by that
+            query = query.filter(Equipment.status == status_filter)
+        else:
+            # By default, only show tasks for operational equipment
+            query = query.filter(Equipment.status == 'Operational')
+            
+        # Apply equipment type filter if provided
         if type_filter:
             query = query.filter(Equipment.type == type_filter)
+            
         # Fetch tasks WITH equipment eagerly loaded to avoid N+1 in loops
         all_tasks_query = query.options(db.joinedload(MaintenanceTask.equipment_ref)).order_by(Equipment.code, Equipment.name, MaintenanceTask.id).all()
 
@@ -2616,15 +2592,21 @@ def legal_tasks_list():
                 'header_status': final_header_label # Use the label derived from the highest priority
             }
 
+        # Get list of equipment types for filter dropdown
         equipment_types = db.session.query(Equipment.type).distinct().order_by(Equipment.type).all()
         equipment_types = [t[0] for t in equipment_types]
+        
+        # Get list of equipment statuses for filter dropdown (adding status filter)
+        equipment_statuses = ['Operational'] + [status for status in EQUIPMENT_STATUSES if status != 'Operational']
 
         logging.debug("--- Rendering pm_legal_tasks.html ---")
         return render_template(
             'pm_legal_tasks.html',
             tasks_data=processed_tasks_data, # Pass the new structure
             equipment_types=equipment_types,
+            equipment_statuses=equipment_statuses,  # Add statuses for dropdown
             type_filter=type_filter,
+            status_filter=status_filter,  # Pass the status filter to template
             title='Legal Compliance Tasks'
         )
     except Exception as e:
@@ -2634,7 +2616,9 @@ def legal_tasks_list():
         return render_template('pm_legal_tasks.html',
                                tasks_data={},
                                equipment_types=[],
+                               equipment_statuses=EQUIPMENT_STATUSES,  # Add statuses for dropdown
                                type_filter=request.args.get('type'),
+                               status_filter=request.args.get('status'),  # Pass the status filter
                                title='Legal Compliance Tasks',
                                error=True)
 

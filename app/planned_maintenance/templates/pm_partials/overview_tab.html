@@ -1,0 +1,393 @@
+{# tkr_system/app/templates/pm_partials/overview_tab.html #}
+
+<!-- Status Cards Row -->
+<div class="row mb-4">
+    <!-- Overdue Tasks Card -->
+    <div class="col mb-3">
+        <div class="card border-left-danger h-100">
+            <div class="card-body py-2">
+                <div class="row no-gutters align-items-center">
+                    <div class="col-auto pe-2">
+                        <i class="bi bi-exclamation-triangle text-danger fa-2x"></i>
+                    </div>
+                    <div class="col">
+                        <div class="text-xs font-weight-bold text-danger text-uppercase mb-1">
+                            Overdue Tasks</div>
+                        <div class="h3 mb-0 font-weight-bold text-gray-800">
+                            {% set ns = namespace(count=0) %}
+                            {% for task in tasks %}
+                                {% if task.due_status and 'Overdue' in task.due_status %}
+                                    {% set ns.count = ns.count + 1 %}
+                                {% endif %}
+                            {% endfor %}
+                            {{ ns.count }}
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <a href="#" onclick="switchToTab('maintenance-tab')" class="stretched-link text-decoration-none small">View Tasks</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Due Soon Card -->
+    <div class="col mb-3">
+        <div class="card border-left-warning h-100">
+            <div class="card-body py-2">
+                <div class="row no-gutters align-items-center">
+                    <div class="col-auto pe-2">
+                        <i class="bi bi-clock text-warning fa-2x"></i>
+                    </div>
+                    <div class="col">
+                        <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
+                            Due Soon</div>
+                        <div class="h3 mb-0 font-weight-bold text-gray-800">
+                            {% set ns = namespace(count=0) %}
+                            {% for task in tasks %}
+                                {% if task.due_status and 'Due Soon' in task.due_status %}
+                                    {% set ns.count = ns.count + 1 %}
+                                {% endif %}
+                            {% endfor %}
+                            {{ ns.count }}
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <a href="#" onclick="switchToTab('maintenance-tab')" class="stretched-link text-decoration-none small">View Tasks</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Legal Compliance Card -->
+    <div class="col mb-3">
+        <div class="card border-left-info h-100">
+            <div class="card-body py-2">
+                <div class="row no-gutters align-items-center">
+                    <div class="col-auto pe-2">
+                        <i class="bi bi-clipboard-check text-info fa-2x"></i>
+                    </div>
+                    <div class="col">
+                        <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
+                            Legal (Overdue)</div>
+                        <div class="h3 mb-0 font-weight-bold text-gray-800">
+                            {% set ns = namespace(count=0) %}
+                            {% for task in legal_tasks %}
+                                {% if task.due_status and 'Overdue' in task.due_status %}
+                                    {% set ns.count = ns.count + 1 %}
+                                {% endif %}
+                            {% endfor %}
+                            {{ ns.count }}
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <a href="#" onclick="switchToTab('legal-tab')" class="stretched-link text-decoration-none small">View Legal</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Job Cards Card -->
+    <div class="col mb-3">
+        <div class="card border-left-primary h-100">
+            <div class="card-body py-2">
+                <div class="row no-gutters align-items-center">
+                    <div class="col-auto pe-2">
+                        <i class="bi bi-journal-text text-primary fa-2x"></i>
+                    </div>
+                    <div class="col">
+                        <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
+                            Job Cards</div>
+                        <div class="h3 mb-0 font-weight-bold text-gray-800">
+                            {{ job_cards|length }}
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <a href="#" onclick="switchToTab('jobcards-tab')" class="stretched-link text-decoration-none small">View Cards</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Checklist Summary Card -->
+    <div class="col mb-3">
+        <div class="card border-left-warning h-100">
+            <div class="card-body py-2">
+                <div class="row no-gutters align-items-center">
+                    <div class="col-auto pe-2">
+                        <i class="bi bi-clipboard-check text-warning fa-2x"></i>
+                    </div>
+                    <div class="col">
+                        <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
+                            Daily Checklists</div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800">
+                            {% set ns = namespace(required=0, completed=0) %}
+                            {% for eq in equipment %}
+                                {% if eq.checklist_required %}
+                                    {% set ns.required = ns.required + 1 %}
+                                    {% set last_check_date_obj = eq.latest_checklist.check_date if eq.latest_checklist else None %}
+                                    {% set checked_yesterday_or_today = last_check_date_obj and (last_check_date_obj.date() == yesterday or last_check_date_obj.date() == today) %}
+                                    {% if checked_yesterday_or_today %}
+                                        {% set ns.completed = ns.completed + 1 %}
+                                    {% endif %}
+                                {% endif %}
+                            {% endfor %}
+                            <span class="small text-muted">R:</span> {{ ns.required }} 
+                            <span class="small text-muted ms-2">C:</span> {{ ns.completed }}
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <a href="#" onclick="switchToTab('equipment-tab')" class="stretched-link text-decoration-none small">View Equip</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Overdue Tasks & Equipment Status Cards Row -->
+<div class="row">
+    <!-- Overdue Tasks Preview -->
+    <div class="col-lg-6 mb-4">
+        <div class="card">
+            <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center">
+                <h5 class="m-0 font-weight-bold">Overdue Tasks</h5>
+                <button class="btn btn-sm btn-outline-light" onclick="switchToTab('maintenance-tab')">View All</button>
+            </div>
+            <div class="card-body p-0">
+                {% set overdue_tasks = [] %}
+                {% for task in tasks %}
+                    {% if task.due_status and 'Overdue' in task.due_status %}
+                        {% set overdue_tasks = overdue_tasks.append(task) or overdue_tasks %}
+                    {% endif %}
+                {% endfor %}
+
+                {% if overdue_tasks|length > 0 %}
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Equipment</th>
+                                    <th>Task</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for task in overdue_tasks[:3] %}
+                                    <tr>
+                                        <td>{{ task.equipment_ref.code }} - {{ task.equipment_ref.name }}</td>
+                                        <td>{{ task.description }}</td>
+                                        <td><span class="badge bg-danger">{{ task.due_status }}</span></td>
+                                    </tr>
+                                {% endfor %}
+                                {% if overdue_tasks|length > 3 %}
+                                    <tr class="table-light">
+                                        <td colspan="3" class="text-center">
+                                            <small class="text-muted">+ {{ overdue_tasks|length - 3 }} more overdue tasks</small>
+                                        </td>
+                                    </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="card-body text-center">
+                        <p class="text-muted mb-0">No overdue maintenance tasks at this time.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Equipment Status Preview -->
+    <div class="col-lg-6 mb-4">
+         <div class="card">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <h5 class="m-0 font-weight-bold">Equipment Status</h5>
+                <button class="btn btn-sm btn-outline-light" onclick="switchToTab('equipment-tab')">View All</button>
+            </div>
+            <div class="card-body p-0">
+                {% if equipment %}
+                    {% set equipment_needing_checklist = [] %}
+                    {% for eq in equipment %}
+                        {% set last_check_date_obj = eq.latest_checklist.check_date if eq.latest_checklist else None %}
+                        {% set checked_yesterday_or_today = last_check_date_obj and (last_check_date_obj.date() == yesterday or last_check_date_obj.date() == today) %}
+                        {% if eq.checklist_required and not checked_yesterday_or_today %}
+                            {% set equipment_needing_checklist = equipment_needing_checklist.append(eq) or equipment_needing_checklist %}
+                        {% endif %}
+                    {% endfor %}
+                    
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Equipment</th>
+                                    <th>Status</th>
+                                    <th>Last Checklist</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% if equipment_needing_checklist|length > 0 %}
+                                    {% for eq in equipment_needing_checklist[:3] %}
+                                        {% set last_check_date_obj = eq.latest_checklist.check_date if eq.latest_checklist else None %}
+                                        {% set last_check_date_str = last_check_date_obj.strftime('%Y-%m-%d') if last_check_date_obj else 'Never' %}
+                                        
+                                        <tr class="table-danger">
+                                            <td>{{ eq.code }} - {{ eq.name }}</td>
+                                            <td>
+                                                {% set status_color = 'secondary' %}
+                                                {% if eq.status == 'Operational' %}
+                                                    {% set status_color = 'success' %}
+                                                {% elif eq.status in ['Broken Down', 'At OEM', 'Under Repair', 'Awaiting Spares'] %}
+                                                    {% set status_color = 'danger' %}
+                                                {% endif %}
+                                                <span class="badge bg-{{ status_color }}">{{ eq.status }}</span>
+                                            </td>
+                                            <td>
+                                                {% if eq.latest_checklist %}
+                                                    <span class="badge {% if eq.latest_checklist.status == 'Go' %}bg-success{% elif eq.latest_checklist.status == 'Go But' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                                        {{ eq.latest_checklist.status }}
+                                                    </span> on {{ last_check_date_str }}
+                                                    <span class="badge bg-danger ms-1">Needed</span>
+                                                {% else %}
+                                                    Never <span class="badge bg-danger ms-1">Needed</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                    {% if equipment_needing_checklist|length > 3 %}
+                                        <tr class="table-light">
+                                            <td colspan="3" class="text-center">
+                                                <small class="text-muted">+ {{ equipment_needing_checklist|length - 3 }} more equipment needing checklists</small>
+                                            </td>
+                                        </tr>
+                                    {% endif %}
+                                {% else %}
+                                    {% for eq in equipment[:3] %}
+                                        {% set last_check_date_obj = eq.latest_checklist.check_date if eq.latest_checklist else None %}
+                                        {% set last_check_date_str = last_check_date_obj.strftime('%Y-%m-%d') if last_check_date_obj else 'Never' %}
+                                        {% set checked_yesterday_or_today = last_check_date_obj and (last_check_date_obj.date() == yesterday or last_check_date_obj.date() == today) %}
+
+                                        <tr>
+                                            <td>{{ eq.code }} - {{ eq.name }}</td>
+                                            <td>
+                                                {% set status_color = 'secondary' %}
+                                                {% if eq.status == 'Operational' %}
+                                                    {% set status_color = 'success' %}
+                                                {% elif eq.status in ['Broken Down', 'At OEM', 'Under Repair', 'Awaiting Spares'] %}
+                                                    {% set status_color = 'danger' %}
+                                                {% endif %}
+                                                <span class="badge bg-{{ status_color }}">{{ eq.status }}</span>
+                                            </td>
+                                            <td>
+                                                {% if eq.latest_checklist %}
+                                                    <span class="badge {% if eq.latest_checklist.status == 'Go' %}bg-success{% elif eq.latest_checklist.status == 'Go But' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                                        {{ eq.latest_checklist.status }}
+                                                    </span> on {{ last_check_date_str }}
+                                                {% else %}
+                                                    Never
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="card-body text-center">
+                        <p class="text-muted mb-0">No equipment registered.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Job Cards Preview Row -->
+<div class="row">
+    <div class="col-12 mb-4">
+        <div class="card">
+            <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                <h5 class="m-0 font-weight-bold">Latest Open Job Cards</h5>
+                <button class="btn btn-sm btn-outline-light" onclick="switchToTab('jobcards-tab')">View All</button>
+            </div>
+            <div class="card-body p-0">
+                {% if job_cards %}
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>#</th>
+                                    <th>Equipment</th>
+                                    <th>Description</th>
+                                    <th>Due Date</th>
+                                    <th>Status</th>
+                                    <th>Type</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for jc in job_cards[:5] %}
+                                    {% set is_legal = jc.job_number.startswith('LC-') %}
+                                    <tr {% if is_legal %}class="table-info"{% endif %}>
+                                        <td><small>{{ jc.job_number }}</small></td>
+                                        <td><small>{{ jc.equipment_ref.code }} - {{ jc.equipment_ref.name }}</small></td>
+                                        <td><small>{{ jc.description | truncate(30) }}</small></td>
+                                        <td><small>{{ jc.due_date.strftime('%Y-%m-%d') if jc.due_date else 'Not Set' }}</small></td>
+                                        <td>
+                                            <small>
+                                                <span class="badge
+                                                    {% if jc.status == 'To Do' %}bg-warning text-dark
+                                                    {% elif jc.status == 'In Progress' %}bg-info text-dark
+                                                    {% else %}bg-secondary{% endif %}">
+                                                    {{ jc.status }}
+                                                </span>
+                                            </small>
+                                        </td>
+                                        <td>
+                                            <small>
+                                                <span class="badge {% if is_legal %}bg-info{% else %}bg-secondary{% endif %}">
+                                                    {{ "Legal" if is_legal else "Maint" }}
+                                                </span>
+                                            </small>
+                                        </td>
+                                        <td>
+                                            <a href="{{ url_for('planned_maintenance.complete_job_card', id=jc.id) }}"
+                                               class="btn btn-sm btn-outline-success">
+                                                <i class="bi bi-check-lg"></i> Complete
+                                            </a>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="card-body text-center">
+                        <p class="text-muted mb-0">No open job cards.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- JavaScript for Tab Navigation -->
+<script>
+    function switchToTab(tabId) {
+        // Find the tab element
+        const tabElement = document.getElementById(tabId);
+        
+        // Create a new Bootstrap Tab instance
+        if (tabElement) {
+            const tab = new bootstrap.Tab(tabElement);
+            
+            // Show the tab
+            tab.show();
+        }
+    }
+</script>

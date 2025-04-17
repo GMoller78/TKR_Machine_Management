@@ -10,24 +10,56 @@
         <a href="{{ url_for('planned_maintenance.add_legal_task') }}" class="btn btn-success">Add New Legal Task</a>
     </div>
 
-    <!-- Type Filter -->
+    <!-- Filters -->
     <div class="mb-4">
-        <form method="GET" action="{{ url_for('planned_maintenance.legal_tasks_list') }}">
-            <div class="row g-2 align-items-center">
-                <div class="col-auto">
-                    <label for="typeFilter" class="form-label">Filter by Equipment Type:</label>
-                </div>
-                <div class="col-auto">
-                    <select name="type" id="typeFilter" class="form-select" onchange="this.form.submit()">
-                        <option value="">All Types</option>
-                        {% for type in equipment_types %}
-                            <option value="{{ type }}" {% if type == type_filter %}selected{% endif %}>{{ type }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
+        <form method="GET" action="{{ url_for('planned_maintenance.legal_tasks_list') }}" class="row g-3">
+            <!-- Equipment Type Filter -->
+            <div class="col-md-4">
+                <label for="typeFilter" class="form-label">Equipment Type:</label>
+                <select name="type" id="typeFilter" class="form-select">
+                    <option value="">All Types</option>
+                    {% for type in equipment_types %}
+                        <option value="{{ type }}" {% if type == type_filter %}selected{% endif %}>{{ type }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <!-- Equipment Status Filter -->
+            <div class="col-md-4">
+                <label for="statusFilter" class="form-label">Equipment Status:</label>
+                <select name="status" id="statusFilter" class="form-select">
+                    <option value="Operational" {% if status_filter == 'Operational' or not status_filter %}selected{% endif %}>Operational Only</option>
+                    <option value="" {% if status_filter == '' %}selected{% endif %}>All Statuses</option>
+                    {% for status in equipment_statuses %}
+                        {% if status != 'Operational' and status != 'Sold' %}
+                            <option value="{{ status }}" {% if status == status_filter %}selected{% endif %}>{{ status }}</option>
+                        {% endif %}
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <!-- Submit Button -->
+            <div class="col-md-4 align-self-end">
+                <button type="submit" class="btn btn-primary">Apply Filters</button>
+                <a href="{{ url_for('planned_maintenance.legal_tasks_list') }}?status=Operational" class="btn btn-outline-secondary">Reset</a>
             </div>
         </form>
     </div>
+
+    <!-- Equipment Status Alert for non-operational filters -->
+    {% if status_filter and status_filter != 'Operational' %}
+    <div class="alert alert-info mb-4">
+        <i class="bi bi-info-circle-fill me-2"></i>
+        <strong>Note:</strong> You are viewing legal compliance tasks for equipment with status "{{ status_filter }}". 
+        Legal compliance is typically only required for operational equipment.
+    </div>
+    {% elif not status_filter %}
+    <div class="alert alert-info mb-4">
+        <i class="bi bi-info-circle-fill me-2"></i>
+        <strong>Note:</strong> You are viewing legal compliance tasks for equipment with all statuses. 
+        Legal compliance is typically only required for operational equipment.
+    </div>
+    {% endif %}
 
     {% if tasks_data %}
         <div class="accordion" id="tasksAccordion">
@@ -114,6 +146,7 @@
                                                 </td>
                                                 <td>
                                                      <form action="{{ url_for('planned_maintenance.new_job_card_from_task', task_id=task.id) }}" method="POST" class="d-inline">
+                                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
                                                         <input type="text" name="technician" placeholder="Tech" class="form-control form-control-sm d-inline-block" style="width: 80px;" title="Assign Technician & Create Job Card">
                                                         <button type="submit" class="btn btn-sm btn-primary" title="Create Job Card"><i class="bi bi-journal-plus"></i></button>
                                                     </form>
@@ -133,9 +166,30 @@
         </div>
         <p class="mt-3"><small>Note: Task status and estimates depend on regular usage logging. Status colours: Red (Overdue), Yellow (Due Soon), Green (OK), Blue (Warning/Data Issue), Grey (Other/Error), Light (Never Done).</small></p>
     {% else %}
-        <p class="text-muted">No legal compliance tasks have been defined yet{% if type_filter %} for type "{{ type_filter }}"{% endif %}.</p>
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+            {% if status_filter %}
+                <p>No legal compliance tasks have been defined yet for equipment with status "{{ status_filter }}"{% if type_filter %} and type "{{ type_filter }}"{% endif %}.</p>
+            {% elif type_filter %}
+                <p>No legal compliance tasks have been defined yet for equipment with type "{{ type_filter }}".</p>
+            {% else %}
+                <p>No legal compliance tasks have been defined yet.</p>
+            {% endif %}
+            
+            <p class="mb-0">
+                <a href="{{ url_for('planned_maintenance.add_legal_task') }}" class="btn btn-sm btn-success mt-2">
+                    <i class="bi bi-plus-circle me-1"></i> Add Legal Task
+                </a>
+                {% if status_filter and status_filter != 'Operational' %}
+                    <a href="{{ url_for('planned_maintenance.legal_tasks_list') }}?status=Operational" class="btn btn-sm btn-outline-secondary mt-2">
+                        <i class="bi bi-gear me-1"></i> View Operational Equipment Only
+                    </a>
+                {% endif %}
+            </p>
+        </div>
         {% if error %}
          <div class="alert alert-danger mt-3">
+             <i class="bi bi-exclamation-octagon-fill me-2"></i>
              An error occurred while loading task data. Please check the logs or contact support.
          </div>
         {% endif %}

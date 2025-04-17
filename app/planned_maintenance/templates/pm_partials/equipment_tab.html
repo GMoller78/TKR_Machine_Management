@@ -1,0 +1,197 @@
+{# tkr_system/app/templates/pm_partials/equipment_tab.html #}
+
+<!-- Header with Actions -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="h4 mb-0">Equipment Status</h2>
+    <div>
+        <a href="{{ url_for('planned_maintenance.equipment_list') }}" class="btn btn-primary me-2">
+            <i class="bi bi-gear me-1"></i> Manage Equipment
+        </a>
+        <a href="{{ url_for('planned_maintenance.usage_logs') }}" class="btn btn-info me-2">
+            <i class="bi bi-graph-up me-1"></i> View Usage Logs
+        </a>
+        <a href="{{ url_for('planned_maintenance.checklist_logs') }}" class="btn btn-secondary">
+            <i class="bi bi-check2-square me-1"></i> View Checklists
+        </a>
+    </div>
+</div>
+
+<!-- Filter Card -->
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">Filter Equipment</h5>
+    </div>
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('planned_maintenance.equipment_list') }}" id="equipmentFilterForm" class="row g-3">
+            <!-- Equipment Type Filter -->
+            <div class="col-md-4">
+                <label for="eqTypeFilter" class="form-label">Equipment Type</label>
+                <select class="form-select" id="eqTypeFilter" name="type">
+                    <option value="">All Types</option>
+                    {% for type in equipment|map(attribute='type')|unique|sort %}
+                        {% if type %}
+                            <option value="{{ type }}">{{ type }}</option>
+                        {% endif %}
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <!-- Status Filter -->
+            <div class="col-md-4">
+                <label for="eqStatusFilter" class="form-label">Status</label>
+                <select class="form-select" id="eqStatusFilter" name="status">
+                    <option value="">All Statuses</option>
+                    <option value="Operational">Operational</option>
+                    <option value="Under Repair">Under Repair</option>
+                    <option value="Broken Down">Broken Down</option>
+                    <option value="At OEM">At OEM</option>
+                    <option value="Awaiting Spares">Awaiting Spares</option>
+                </select>
+            </div>
+            
+            <!-- Checklist Required Filter -->
+            <div class="col-md-4">
+                <label for="checklistFilter" class="form-label">Checklist Required</label>
+                <select class="form-select" id="checklistFilter" name="checklist">
+                    <option value="">All Equipment</option>
+                    <option value="yes">Checklist Required</option>
+                    <option value="no">No Checklist Required</option>
+                    <option value="needed">Checklist Needed Today</option>
+                </select>
+            </div>
+            
+            <!-- Apply/Reset Buttons -->
+            <div class="col-12 text-end">
+                <button type="button" class="btn btn-outline-secondary" onclick="resetEquipmentFilters()">Reset</button>
+                <button type="submit" class="btn btn-primary">Apply Filters</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Equipment Table -->
+<div class="card">
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Equipment Status</h5>
+        <a href="{{ url_for('planned_maintenance.equipment_list') }}" class="btn btn-sm btn-light">Manage Equipment</a>
+    </div>
+    <div class="card-body p-0">
+        {% if equipment %}
+            <div class="table-responsive">
+                <table class="table table-striped table-hover table-sm mb-0">
+                    <thead>
+                        <tr>
+                            <th>Equipment</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Last Usage</th>
+                            <th>Last Checklist</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for eq in equipment %}
+                            {% set last_check_date_obj = eq.latest_checklist.check_date if eq.latest_checklist else None %}
+                            {% set last_check_date_str = last_check_date_obj.strftime('%Y-%m-%d') if last_check_date_obj else 'Never' %}
+                            {% set checked_yesterday_or_today = last_check_date_obj and (last_check_date_obj.date() == yesterday or last_check_date_obj.date() == today) %}
+                            
+                            <tr class="{% if eq.checklist_required and not checked_yesterday_or_today and last_check_date_str != 'Never' %}table-danger{% endif %}">
+                                <td><small>{{ eq.code }} - {{ eq.name }}</small></td>
+                                <td><small>{{ eq.type }}</small></td>
+                                <td>
+                                    {% set status_color = 'secondary' %}
+                                    {% if eq.status == 'Operational' %}
+                                        {% set status_color = 'success' %}
+                                    {% elif eq.status in ['Broken Down', 'At OEM', 'Under Repair', 'Awaiting Spares'] %}
+                                        {% set status_color = 'danger' %}
+                                    {% endif %}
+                                    <span class="badge bg-{{ status_color }}"><small>{{ eq.status }}</small></span>
+                                </td>
+                                <td>
+                                    <small>
+                                    {% if eq.latest_usage %}
+                                        {{ eq.latest_usage.usage_value }} on {{ eq.latest_usage.log_date.strftime('%Y-%m-%d') }}
+                                    {% else %}
+                                        Never
+                                    {% endif %}
+                                    </small>
+                                </td>
+                                <td>
+                                    <small>
+                                    {% if eq.latest_checklist %}
+                                        <span class="badge {% if eq.latest_checklist.status == 'Go' %}bg-success{% elif eq.latest_checklist.status == 'Go But' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                            {{ eq.latest_checklist.status }}
+                                        </span> on {{ last_check_date_str }}
+                                        {% if eq.checklist_required and not checked_yesterday_or_today and last_check_date_str != 'Never' %}
+                                            <span class="badge bg-danger ms-1">Needed Today</span>
+                                        {% endif %}
+                                    {% else %}
+                                        Never {% if eq.checklist_required %}<span class="badge bg-secondary ms-1">Required</span>{% endif %}
+                                    {% endif %}
+                                    </small>
+                                </td>
+                                <td>
+                                    <div class="dropdown">
+                                        <button class="btn btn-outline-secondary btn-xs dropdown-toggle" type="button" id="actionsDropdown-{{ eq.id }}" data-bs-toggle="dropdown" aria-expanded="false">
+                                            <i class="bi bi-gear"></i> Actions
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="actionsDropdown-{{ eq.id }}">
+                                            <li>
+                                                <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#usageModal-{{ eq.id }}">
+                                                    <i class="bi bi-speedometer2 me-2"></i>Log Usage
+                                                </button>
+                                            </li>
+                                            {% if eq.checklist_required %}
+                                            <li>
+                                                <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#checklistModal-{{ eq.id }}">
+                                                    <i class="bi bi-check2-square me-2"></i>Log Checklist
+                                                </button>
+                                            </li>
+                                            {% endif %}
+                                            <li><hr class="dropdown-divider"></li>
+                                            <li>
+                                                <a class="dropdown-item" href="{{ url_for('planned_maintenance.edit_equipment', id=eq.id) }}">
+                                                    <i class="bi bi-pencil-square me-2"></i>Edit Equipment
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="dropdown-item" href="{{ url_for('planned_maintenance.tasks_list', equipment_id=eq.id) }}">
+                                                    <i class="bi bi-list-task me-2"></i>View Tasks
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="dropdown-item" href="{{ url_for('planned_maintenance.usage_logs', equipment_id=eq.id) }}">
+                                                    <i class="bi bi-graph-up me-2"></i>View Usage Log
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="dropdown-item" href="{{ url_for('planned_maintenance.checklist_logs', equipment_id=eq.id) }}">
+                                                    <i class="bi bi-card-checklist me-2"></i>View Checklist Log
+                                                </a>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="card-body text-center">
+                <p class="text-muted text-center">No active equipment registered. <a href="{{ url_for('planned_maintenance.equipment_list') }}">Add/Manage Equipment!</a></p>
+            </div>
+        {% endif %}
+    </div>
+    <div class="card-footer text-muted">
+        <small>Equipment marked 'Sold' is hidden. Red rows indicate checklist required but not completed yesterday or today.</small>
+    </div>
+</div>
+
+<script>
+    function resetEquipmentFilters() {
+        document.getElementById('eqTypeFilter').value = '';
+        document.getElementById('eqStatusFilter').value = '';
+        document.getElementById('checklistFilter').value = '';
+    }
+</script>

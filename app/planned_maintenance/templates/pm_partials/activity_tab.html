@@ -1,0 +1,112 @@
+{# tkr_system/app/templates/pm_partials/activity_tab.html #}
+
+<!-- Header -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="h4 mb-0">Recent Activity</h2>
+    <div>
+        <button class="btn btn-outline-secondary" id="refreshActivityBtn">
+            <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+        </button>
+    </div>
+</div>
+
+<!-- Activity Timeline -->
+<div class="card">
+    <div class="card-header bg-secondary text-white">
+        <h5 class="mb-0">Activity Timeline ({{ recent_activities|length }} events)</h5>
+    </div>
+    <div class="card-body py-0" style="max-height: 600px; overflow-y: auto;">
+        {% if recent_activities %}
+            <div class="position-relative pt-3">
+                <div class="position-absolute h-100" style="width: 2px; background-color: #e0e0e0; left: 12px; top: 0;"></div>
+                {% for activity in recent_activities %}
+                    <div class="d-flex mb-4 position-relative">
+                        <!-- Activity Icon -->
+                        <div class="flex-shrink-0">
+                            {% if activity.type == 'checklist' %}
+                                <div class="rounded-circle bg-info text-white d-flex align-items-center justify-content-center" style="width: 26px; height: 26px;">
+                                    <i class="bi bi-check2-square"></i>
+                                </div>
+                            {% elif activity.type == 'usage' %}
+                                <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center" style="width: 26px; height: 26px;">
+                                    <i class="bi bi-speedometer2"></i>
+                                </div>
+                            {% elif activity.type == 'job_card_created' %}
+                                <div class="rounded-circle bg-success text-white d-flex align-items-center justify-content-center" style="width: 26px; height: 26px;">
+                                    <i class="bi bi-journal-plus"></i>
+                                </div>
+                            {% elif activity.type == 'job_card_completed' %}
+                                <div class="rounded-circle bg-warning text-dark d-flex align-items-center justify-content-center" style="width: 26px; height: 26px;">
+                                    <i class="bi bi-journal-check"></i>
+                                </div>
+                            {% else %}
+                                <div class="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center" style="width: 26px; height: 26px;">
+                                    <i class="bi bi-activity"></i>
+                                </div>
+                            {% endif %}
+                        </div>
+                        
+                        <!-- Activity Content -->
+                        <div class="ms-3 flex-grow-1">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <h6 class="mb-1">
+                                    {% if activity.type == 'checklist' %}
+                                        <span class="badge
+                                            {% if activity.details.status == 'Go' %}bg-success
+                                            {% elif activity.details.status == 'Go But' %}bg-warning text-dark
+                                            {% else %}bg-danger{% endif %} me-2">
+                                            {{ activity.details.status }}
+                                        </span>
+                                        Checklist
+                                    {% elif activity.type == 'usage' %}
+                                        <span class="badge bg-primary me-2">
+                                            {{ activity.details.usage_value }}
+                                        </span>
+                                        Usage Log
+                                    {% elif activity.type == 'job_card_created' %}
+                                        <span class="badge bg-success me-2">
+                                            Created
+                                        </span>
+                                        Job Card
+                                    {% elif activity.type == 'job_card_completed' %}
+                                        <span class="badge bg-warning text-dark me-2">
+                                            Completed
+                                        </span>
+                                        Job Card
+                                    {% endif %}
+                                </h6>
+                                <small class="text-muted">{{ activity.timestamp.strftime('%Y-%m-%d %H:%M') }}</small>
+                            </div>
+                            <p class="mb-1">{{ activity.description }}</p>
+                            
+                            <!-- Additional Details -->
+                            {% if activity.type == 'checklist' and activity.details.issues %}
+                                <p class="small border-start border-danger ps-2 mb-0">
+                                    <strong>Issues:</strong> {{ activity.details.issues }}
+                                </p>
+                            {% elif activity.type == 'job_card_completed' and activity.details.comments %}
+                                <p class="small border-start border-success ps-2 mb-0">
+                                    <strong>Comments:</strong> {{ activity.details.comments }}
+                                </p>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="text-center py-4">
+                <p class="text-muted mb-0">No recent activity recorded.</p>
+            </div>
+        {% endif %}
+    </div>
+    <div class="card-footer text-muted">
+        <small>Shows the most recent {{ recent_activities|length }} activities in the system.</small>
+    </div>
+</div>
+
+<script>
+    document.getElementById('refreshActivityBtn').addEventListener('click', function() {
+        // Reload the current page to refresh activity data
+        window.location.reload();
+    });
+</script>
