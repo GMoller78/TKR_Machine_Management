@@ -119,6 +119,9 @@
                                                         <input type="text" name="technician" placeholder="Tech" class="form-control form-control-sm d-inline-block" style="width: 80px;" title="Assign Technician & Create Job Card">
                                                         <button type="submit" class="btn btn-sm btn-primary" title="Create Job Card"><i class="bi bi-journal-plus"></i></button> {# Icon example #}
                                                     </form>
+                                                    <a href="{{ url_for('planned_maintenance.edit_task', id=task.id) }}" class="btn btn-sm btn-warning align-top" title="Edit Task">
+                                                        <i class="bi bi-pencil-square"></i>
+                                                    </a>
                                                 </td>
                                             </tr>
                                             {% endfor %}

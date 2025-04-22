@@ -2186,7 +2186,7 @@ def tasks_list():
                                error=True)
 
 # ==============================================================================
-# === Add/Edit Task ===
+# === Tasks ===
 # ==============================================================================
 @bp.route('/task/add', methods=['GET', 'POST'])
 def add_task():
@@ -2251,6 +2251,103 @@ def add_task():
         equipment_list = []
 
     return render_template('pm_task_form.html', equipment=equipment_list, title="Add New Task")
+
+@bp.route('/task/edit/<int:id>', methods=['GET', 'POST'])
+def edit_task(id):
+    """Displays form to edit a task (GET) or processes update (POST)."""
+    task_to_edit = MaintenanceTask.query.get_or_404(id)
+
+    if request.method == 'POST':
+        try:
+            # Get data from form
+            equipment_id = request.form.get('equipment_id', type=int)
+            description = request.form.get('description')
+            interval_type = request.form.get('interval_type')
+            interval_value_str = request.form.get('interval_value')
+            oem_required = 'oem_required' in request.form
+            kit_required = 'kit_required' in request.form
+            # Allow editing the legal compliance flag
+            is_legal_compliance = 'is_legal_compliance' in request.form
+
+            # Validation (same as add_task)
+            errors = []
+            if not equipment_id: errors.append("Equipment is required.")
+            if not description: errors.append("Description is required.")
+            if not interval_type: errors.append("Interval Type is required.")
+            if not interval_value_str: errors.append("Interval Value is required.")
+
+            interval_value = 0
+            if interval_value_str:
+                try:
+                    interval_value = int(interval_value_str)
+                    if interval_value <= 0:
+                        errors.append("Interval Value must be positive.")
+                except ValueError:
+                    errors.append("Interval Value must be a whole number.")
+
+            if errors:
+                for error in errors: flash(error, 'warning')
+                # Re-render edit form with validation errors
+                equipment_list = Equipment.query.order_by(Equipment.name).all()
+                # <<< PASS BACK SUBMITTED DATA TO REPOPULATE >>>
+                submitted_data = request.form.to_dict() # Get submitted form data
+                submitted_data['id'] = id # Keep the ID
+                submitted_data['oem_required'] = oem_required # Reflect submitted checkbox state
+                submitted_data['kit_required'] = kit_required
+                submitted_data['is_legal_compliance'] = is_legal_compliance # Reflect submitted checkbox state
+                return render_template('pm_task_edit_form.html',
+                                       equipment=equipment_list,
+                                       task=submitted_data, # Pass submitted data
+                                       title=f"Edit Task: {task_to_edit.description}")
+
+            # --- Update the task object in the database ---
+            task_to_edit.equipment_id = equipment_id
+            task_to_edit.description = description
+            task_to_edit.interval_type = interval_type
+            task_to_edit.interval_value = interval_value
+            task_to_edit.oem_required = oem_required
+            task_to_edit.kit_required = kit_required
+            task_to_edit.is_legal_compliance = is_legal_compliance # Update the flag
+
+            db.session.commit()
+            flash(f'Task "{task_to_edit.description}" updated successfully!', 'success')
+
+            # Redirect to the appropriate task list based on the (potentially updated) type
+            if task_to_edit.is_legal_compliance:
+                 return redirect(url_for('planned_maintenance.legal_tasks_list'))
+            else:
+                 return redirect(url_for('planned_maintenance.tasks_list'))
+
+
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Error updating task (id: {id}): {e}", exc_info=True)
+            flash(f"Error updating task: {e}", "danger")
+            # Re-render edit form on unexpected error
+            equipment_list = Equipment.query.order_by(Equipment.name).all()
+            # Pass the original task object back after rollback
+            return render_template('pm_task_edit_form.html',
+                                   equipment=equipment_list,
+                                   task=task_to_edit, # Pass original object
+                                   title=f"Edit Task: {task_to_edit.description}")
+
+    # --- Handle GET Request ---
+    # Fetch equipment list for the dropdown
+    try:
+        equipment_list = Equipment.query.order_by(Equipment.name).all()
+    except Exception as e:
+        flash(f"Error loading equipment list for form: {e}", "danger")
+        equipment_list = []
+        # Redirect if equipment can't be loaded? Or show form without dropdown?
+        # Let's show the form but the dropdown will be empty.
+        # Alternatively, redirect:
+        # return redirect(url_for('planned_maintenance.tasks_list'))
+
+    # Render the edit form, passing the existing task object
+    return render_template('pm_task_edit_form.html',
+                           equipment=equipment_list,
+                           task=task_to_edit, # Pass the DB object for pre-filling
+                           title=f"Edit Task: {task_to_edit.description}")
 
 # ==============================================================================
 # === Usage Log ===

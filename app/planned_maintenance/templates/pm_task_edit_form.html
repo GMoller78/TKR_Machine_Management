@@ -1,0 +1,84 @@
+{# app/templates/pm_task_edit_form.html #}
+{% extends "pm_base.html" %}
+
+{% block title %}{{ title }} - {{ super() }}{% endblock %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+
+<div class="card">
+    <div class="card-body">
+         {# Point form action to the edit route with the task's ID #}
+         <form method="POST" action="{{ url_for('planned_maintenance.edit_task', id=task.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+
+            <div class="mb-3">
+                <label for="task_equipment_id" class="form-label">Equipment <span class="text-danger">*</span></label>
+                <select class="form-select" id="task_equipment_id" name="equipment_id" required>
+                    <option value="" disabled>Select Equipment...</option> {# Removed 'selected' from placeholder #}
+                    {% for item in equipment %}
+                        {# Pre-select the current equipment #}
+                        <option value="{{ item.id }}" {% if item.id == task.equipment_id %}selected{% endif %}>
+                            {{ item.code }} - {{ item.name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label for="task_description" class="form-label">Task Description <span class="text-danger">*</span></label>
+                {# Pre-fill the description #}
+                <input type="text" class="form-control" id="task_description" name="description" required placeholder="e.g., 250 Hour Service, Check Hydraulics" value="{{ task.description | default('', true) }}">
+            </div>
+
+             <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="task_interval_type" class="form-label">Interval Type <span class="text-danger">*</span></label>
+                    <select class="form-select" id="task_interval_type" name="interval_type" required>
+                        <option value="" disabled>Select Type...</option> {# Removed 'selected' #}
+                        {# Pre-select the current interval type #}
+                        <option value="hours" {% if task.interval_type == 'hours' %}selected{% endif %}>Hours</option>
+                        <option value="km" {% if task.interval_type == 'km' %}selected{% endif %}>Kilometers (KM)</option>
+                        <option value="days" {% if task.interval_type == 'days' %}selected{% endif %}>Days</option>
+                    </select>
+                </div>
+                 <div class="col-md-6 mb-3">
+                     <label for="task_interval_value" class="form-label">Interval Value <span class="text-danger">*</span></label>
+                     {# Pre-fill the interval value #}
+                     <input type="number" class="form-control" id="task_interval_value" name="interval_value" min="1" required placeholder="e.g., 250 or 30" value="{{ task.interval_value | default('', true) }}">
+                     <div class="form-text">Enter the number corresponding to the Interval Type (e.g., 250 hours, 30 days).</div>
+                 </div>
+            </div>
+
+             <div class="row">
+                <div class="col-md-4 mb-3 form-check pt-3">
+                    {# Pre-check if OEM required #}
+                    <input type="checkbox" class="form-check-input" id="task_oem_required" name="oem_required" {% if task.oem_required %}checked{% endif %}>
+                    <label class="form-check-label" for="task_oem_required">OEM Presence Required?</label>
+                </div>
+                <div class="col-md-4 mb-3 form-check pt-3">
+                    {# Pre-check if kit required #}
+                    <input type="checkbox" class="form-check-input" id="task_kit_required" name="kit_required" {% if task.kit_required %}checked{% endif %}>
+                    <label class="form-check-label" for="task_kit_required">Specific Supplier Kit Required?</label>
+                </div>
+                {# Add checkbox for legal compliance #}
+                <div class="col-md-4 mb-3 form-check pt-3">
+                    <input type="checkbox" class="form-check-input" id="task_is_legal_compliance" name="is_legal_compliance" {% if task.is_legal_compliance %}checked{% endif %}>
+                    <label class="form-check-label" for="task_is_legal_compliance">Is Legal Compliance Task?</label>
+                </div>
+            </div>
+
+             <hr>
+            {# Change button text #}
+            <button type="submit" class="btn btn-primary">Update Task</button>
+             {# Cancel button - decide where it should go (task list or legal task list?) #}
+             {% if task.is_legal_compliance %}
+                 <a href="{{ url_for('planned_maintenance.legal_tasks_list') }}" class="btn btn-secondary">Cancel</a>
+             {% else %}
+                 <a href="{{ url_for('planned_maintenance.tasks_list') }}" class="btn btn-secondary">Cancel</a>
+             {% endif %}
+         </form>
+    </div>
+</div>
+
+{% endblock %}
