@@ -15,6 +15,7 @@ def format_month_name(month_number):
         # Handle cases where month_number isn't an integer
         return month_number
 
+
 # Create a Blueprint instance for Planned Maintenance
 # 'planned_maintenance' = blueprint name
 # __name__ = import name (Flask uses this to locate resources)

@@ -12,63 +12,105 @@
         padding: 1rem 1.5rem;
         border-bottom: 1px solid #dee2e6;
         margin-bottom: 1.5rem;
-        border-radius: 0.3rem 0.3rem 0 0; /* Match card header style */
+        border-radius: 0.3rem 0.3rem 0 0;
     }
     .detail-header h2 {
         margin-bottom: 0.25rem;
     }
-    .equipment-section {
-        margin-bottom: 2rem;
-        padding: 1.5rem;
-        background-color: #fff;
+    .filter-section {
+        margin-bottom: 1.5rem;
+        padding: 1rem;
+        background-color: #f8f9fa;
         border: 1px solid #dee2e6;
         border-radius: 0.3rem;
-        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
     }
-    .equipment-header {
-        font-size: 1.25rem;
+    .day-section {
+        margin-bottom: 2rem; /* Increased space between days */
+        padding-top: 1rem;
+        border-top: 1px solid #eee;
+    }
+     .day-section:first-of-type {
+        border-top: none; /* No top border for the first day */
+         padding-top: 0;
+    }
+    .day-header {
+        font-size: 1.4rem; /* Slightly larger day header */
         font-weight: 500;
-        margin-bottom: 1rem;
+        margin-bottom: 1.5rem;
+        color: #0056b3; /* Darker blue */
         padding-bottom: 0.5rem;
-        border-bottom: 1px solid #eee;
-        color: #343a40;
+        border-bottom: 1px solid #dee2e6;
     }
-    .equipment-header .badge {
-        font-size: 0.8rem;
-        vertical-align: middle;
+
+    /* Card Styling */
+    .plan-card {
+        /* Add h-100 if you want cards in the same row to have equal height */
+         height: 100%;
+         box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+         transition: box-shadow 0.2s ease-in-out;
     }
-    .task-list {
-        list-style: none;
-        padding-left: 0;
+     .plan-card:hover {
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.1);
     }
-    .task-list li {
-        padding: 0.4rem 0.6rem;
-        margin-bottom: 0.4rem;
-        border-radius: 0.25rem;
+
+    .card-header {
+        font-weight: 500;
         font-size: 0.9rem;
+        padding: 0.5rem 0.75rem;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        border: 1px solid transparent; /* Base border */
+        background-color: #f8f9fa; /* Light grey header */
     }
-    .task-list .planned-task {
-        background-color: #cfe2ff; /* Light blue */
-        border-color: #b6d4fe;
+     .card-header .equipment-code {
+        color: #343a40;
     }
-    .task-list .planned-task.estimated {
-        background-color: #fff3cd; /* Light yellow for estimates */
-        border-color: #ffeeba;
+     .card-body {
+        padding: 0.75rem;
+        font-size: 0.9rem;
     }
-    .task-list .completed-job {
-        background-color: #d1e7dd; /* Light green */
-        border-color: #badbcc;
+    .card-subtitle {
+        font-size: 0.95rem;
+        font-weight: 500;
+        margin-bottom: 0.5rem;
     }
-    .task-label { font-weight: 500; }
-    .task-date, .job-date { font-size: 0.85rem; color: #555; }
-    .task-details { flex-grow: 1; margin: 0 1rem; } /* Allow description to take space */
-    .no-tasks-alert { font-style: italic; color: #6c757d; }
+    .card-text small {
+        display: block;
+        margin-top: 0.3rem;
+        color: #6c757d;
+    }
+    .card-badges {
+        margin-top: 0.75rem;
+        margin-bottom: 0.5rem;
+        display: flex;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+    }
+    .card-link-section {
+        margin-top: 0.75rem;
+        text-align: right;
+    }
 
+    /* Status Specific Card Borders/Backgrounds (Subtle) */
+    .card-planned { border-left: 4px solid #0d6efd; /* Blue border */ }
+    .card-planned.card-estimated {
+        border-left-color: #ffc107; /* Yellow border for estimates */
+        background-color: #fffcf1; /* Very light yellow bg */
+    }
+    .card-completed { border-left: 4px solid #198754; /* Green border */ }
+
+    /* Badge Styling */
+    .badge.bg-status-planned { background-color: #0d6efd !important; }
+    .badge.bg-status-completed { background-color: #198754 !important; }
+    .badge.bg-legal { background-color: #dc3545 !important; }
+    .badge.bg-maintenance { background-color: #6c757d !important; }
+    .badge.bg-estimate { background-color: #ffc107 !important; color: #343a40 !important; }
+    .badge.bg-interval { background-color: #adb5bd !important; }
+
+
+    .no-items-alert { font-style: italic; color: #6c757d; margin-top: 0.5rem; }
     .back-button { margin-bottom: 1rem; }
+    .action-buttons { gap: 0.5rem; }
 
 </style>
 {% endblock %}
@@ -76,18 +118,22 @@
 {% block content %}
 <div class="container-fluid mt-4">
 
+    {# --- Back Button, Header, Print/PDF Buttons (Keep As Is) --- #}
     <a href="{{ url_for('planned_maintenance.maintenance_plan_list_view') }}" class="btn btn-sm btn-outline-secondary back-button">
         <i class="bi bi-arrow-left"></i> Back to Plan List
     </a>
 
-    <div class="detail-header d-flex justify-content-between align-items-center">
+    <div class="detail-header d-flex justify-content-between align-items-center flex-wrap">
         <div>
-            <h2>{{ month_name }}</h2>
+            <h2>{{ month_name }} - Plan Details</h2>
             <small class="text-muted">{{ generation_info }}</small>
         </div>
-        <div>
+        <div class="d-flex action-buttons mt-2 mt-md-0">
+            <a href="{{ url_for('planned_maintenance.print_maintenance_plan_detail', year=current_year, month=current_month, equipment_type=current_equipment_type_filter or '') }}" class="btn btn-sm btn-info" target="_blank" title="Open Printable View">
+                <i class="bi bi-printer-fill"></i> Print Plan
+            </a>
             {% if WEASYPRINT_AVAILABLE %}
-            <a href="{{ url_for('planned_maintenance.maintenance_plan_pdf', year=current_year, month=current_month) }}" class="btn btn-sm btn-danger" target="_blank" title="Download PDF (Calendar Layout)">
+            <a href="{{ url_for('planned_maintenance.maintenance_plan_pdf', year=current_year, month=current_month) }}" class="btn btn-sm btn-danger" target="_blank" title="Download PDF (Original Calendar Layout)">
                 <i class="bi bi-file-earmark-pdf-fill"></i> PDF (Calendar)
             </a>
             {% else %}
@@ -98,71 +144,142 @@
         </div>
     </div>
 
-    {% if comparison_data %}
-        {% for eq_id, data in comparison_data.items() %}
-        {% set eq = data.equipment %}
-        <div class="equipment-section">
-            <h3 class="equipment-header">
-                {{ eq.code if eq else 'Unknown' }} - {{ eq.name if eq else 'Equipment' }}
-                {% if eq %}<span class="badge bg-secondary ms-2">{{ eq.type }}</span>{% endif %}
-            </h3>
+    {# --- Filter Section (Keep As Is) --- #}
+    <div class="filter-section">
+        <form method="GET" action="{{ url_for('planned_maintenance.maintenance_plan_detail_view') }}" class="row g-3 align-items-end">
+             <input type="hidden" name="year" value="{{ current_year }}">
+             <input type="hidden" name="month" value="{{ current_month }}">
+             <div class="col-md-4">
+                 <label for="equipment_type" class="form-label">Filter by Equipment Type:</label>
+                 <select name="equipment_type" id="equipment_type" class="form-select form-select-sm">
+                     <option value="All" {% if not current_equipment_type_filter or current_equipment_type_filter == 'All' %}selected{% endif %}>-- All Types --</option>
+                     {% for type_name in equipment_types | sort %}
+                         <option value="{{ type_name }}" {% if current_equipment_type_filter == type_name %}selected{% endif %}>{{ type_name }}</option>
+                     {% endfor %}
+                 </select>
+             </div>
+             <div class="col-md-2">
+                 <button type="submit" class="btn btn-primary btn-sm w-100">
+                     <i class="bi bi-filter"></i> Filter
+                 </button>
+             </div>
+             {% if current_equipment_type_filter and current_equipment_type_filter != 'All' %}
+             <div class="col-md-2">
+                 <a href="{{ url_for('planned_maintenance.maintenance_plan_detail_view', year=current_year, month=current_month) }}" class="btn btn-outline-secondary btn-sm w-100">
+                     Clear Filter
+                 </a>
+             </div>
+             {% endif %}
+         </form>
+    </div>
 
-            <div class="row">
-                {# --- Planned Tasks Column --- #}
-                <div class="col-md-6">
-                    <h5><i class="bi bi-calendar-check text-primary me-2"></i>Planned Tasks</h5>
-                    {% if data.planned %}
-                    <ul class="task-list">
-                        {% for entry in data.planned | sort(attribute='planned_date') %}
-                        <li class="planned-task {% if entry.is_estimate %}estimated{% endif %}">
-                            <span class="task-date">{{ entry.planned_date.strftime('%Y-%m-%d') }}</span>
-                            <span class="task-details">
-                                {{ entry.task_description }}
-                                {% if entry.is_estimate %}<span class="badge bg-warning text-dark ms-1">Est.</span>{% endif %}
-                                <small class="text-muted d-block">({{ entry.interval_type }})</small> {# Show interval type #}
-                            </span>
-                            {# Optional: Link to task definition? #}
-                        </li>
-                        {% endfor %}
-                    </ul>
-                    {% else %}
-                    <p class="no-tasks-alert">No tasks planned for this equipment this month.</p>
-                    {% endif %}
-                </div>
 
-                {# --- Completed Job Cards Column --- #}
-                <div class="col-md-6">
-                    <h5><i class="bi bi-check-circle-fill text-success me-2"></i>Completed Jobs</h5>
-                     {% if data.completed %}
-                    <ul class="task-list">
-                        {% for jc in data.completed | sort(attribute='end_datetime') %}
-                        <li class="completed-job">
-                            <span class="job-date">{{ jc.end_datetime.strftime('%Y-%m-%d %H:%M') if jc.end_datetime else 'N/A' }}</span>
-                            <span class="task-details">
-                                <a href="{{ url_for('planned_maintenance.job_card_detail', id=jc.id) }}" title="View Job Card Details">{{ jc.job_number }}</a>: {{ jc.description }}
-                                <small class="text-muted d-block">Technician: {{ jc.technician or 'N/A' }}</small>
-                            </span>
-                            <span class="badge bg-success">Done</span>
-                        </li>
-                        {% endfor %}
-                    </ul>
-                    {% else %}
-                    <p class="no-tasks-alert">No job cards completed for this equipment this month.</p>
-                    {% endif %}
-                </div>
-            </div> {# End row #}
-        </div> {# End equipment-section #}
-        {% endfor %} {# End comparison_data loop #}
+    {# --- Daily Plan Data --- #}
+    {% if daily_plan_data %}
+        {% for day_date, data in daily_plan_data.items() %}
+        <div class="day-section">
+            <h3 class="day-header"><i class="bi bi-calendar-date me-2"></i>{{ day_date.strftime('%A, %d %B %Y') }}</h3>
+
+            {# --- Card Grid Row --- #}
+            <div class="row g-3"> {# g-3 adds gutters between columns #}
+
+                {# Planned Task Cards #}
+                {% if data.planned %}
+                    {% for item in data.planned | sort(attribute='equipment.code') %}
+                    <div class="col-md-6 col-lg-4"> {# Adjust columns: 2 on med, 3 on lg screens #}
+                        <div class="card plan-card card-planned {% if item.is_estimate %}card-estimated{% endif %}">
+                            <div class="card-header">
+                                <span class="equipment-code">
+                                    <i class="bi bi-tools text-secondary me-1"></i>
+                                    {{ item.equipment.code if item.equipment else 'N/A' }}
+                                </span>
+                                <span class="badge bg-status-planned rounded-pill">Planned</span>
+                            </div>
+                            <div class="card-body">
+                                <h6 class="card-subtitle mb-2 text-muted">{{ item.equipment.name if item.equipment else 'N/A' }}</h6>
+                                <p class="card-text">{{ item.description }}</p>
+                                <div class="card-badges">
+                                    {% if item.is_legal %}
+                                        <span class="badge bg-legal"><i class="bi bi-shield-fill-exclamation me-1"></i>Legal</span>
+                                    {% else %}
+                                        <span class="badge bg-maintenance">Maintenance</span>
+                                    {% endif %}
+                                    {% if item.is_estimate %}
+                                        <span class="badge bg-estimate"><i class="bi bi-clock-history me-1"></i>Est.</span>
+                                    {% endif %}
+                                     <span class="badge bg-interval">{{ item.entry.interval_type }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% endif %}
+
+                {# Completed Job Cards #}
+                {% if data.completed %}
+                    {% for item in data.completed | sort(attribute='equipment.code') %}
+                     <div class="col-md-6 col-lg-4">
+                        <div class="card plan-card card-completed">
+                             <div class="card-header">
+                                 <span class="equipment-code">
+                                     <i class="bi bi-truck text-success me-1"></i>
+                                     {{ item.equipment.code if item.equipment else 'N/A' }}
+                                 </span>
+                                 <span class="badge bg-status-completed rounded-pill">Completed</span>
+                             </div>
+                             <div class="card-body">
+                                 <h6 class="card-subtitle mb-2 text-muted">{{ item.equipment.name if item.equipment else 'N/A' }}</h6>
+                                 <p class="card-text">{{ item.description }}</p>
+                                 <div class="card-badges">
+                                     {% if item.is_legal %}
+                                         <span class="badge bg-legal"><i class="bi bi-shield-fill-exclamation me-1"></i>Legal</span>
+                                     {% else %}
+                                        <span class="badge bg-maintenance">Maintenance</span>
+                                     {% endif %}
+                                 </div>
+                                 <p class="card-text">
+                                     <small>
+                                         Completed: {{ item.job_card.end_datetime.strftime('%H:%M') if item.job_card.end_datetime }}<br>
+                                         Technician: {{ item.job_card.technician or 'N/A' }}
+                                    </small>
+                                 </p>
+                                 <div class="card-link-section">
+                                     <a href="{{ url_for('planned_maintenance.job_card_detail', id=item.job_card.id) }}" class="btn btn-outline-success btn-sm" title="View Job Card {{ item.job_card.job_number }}">
+                                         <i class="bi bi-clipboard-check"></i> {{ item.job_card.job_number }}
+                                     </a>
+                                 </div>
+                             </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% endif %}
+
+                 {% if not data.planned and not data.completed %}
+                    <div class="col-12">
+                        <p class="no-items-alert text-center">No items scheduled or completed for this day.</p>
+                    </div>
+                 {% endif %}
+
+            </div> {# End row g-3 #}
+        </div> {# End day-section #}
+        {% endfor %} {# End daily_plan_data loop #}
 
     {% elif error %}
+         {# --- Error Message (Keep As Is) --- #}
          <div class="alert alert-danger">
             <strong>Error:</strong> {{ error }}
         </div>
     {% else %}
-         <div class="alert alert-info">
-            No planned tasks or completed job cards found for {{ month_name }}. Check if the plan was generated or if jobs were completed in this period.
+         {# --- No Data Message (Keep As Is) --- #}
+         <div class="alert alert-info mt-3">
+             {% if current_equipment_type_filter and current_equipment_type_filter != 'All' %}
+                 No planned tasks or completed job cards found for {{ month_name }} matching the filter: <strong>{{ current_equipment_type_filter }}</strong>.
+                 <a href="{{ url_for('planned_maintenance.maintenance_plan_detail_view', year=current_year, month=current_month) }}" class="alert-link">Clear filter</a>?
+             {% else %}
+                 No planned tasks or completed job cards found for {{ month_name }}. Check if the plan was generated or if jobs were completed in this period.
+             {% endif %}
         </div>
-    {% endif %} {# End if comparison_data #}
+    {% endif %} {# End if daily_plan_data #}
 
 </div> {# End container #}
 {% endblock %}

@@ -381,7 +381,8 @@ class MaintenancePlanEntry(db.Model):
     plan_year = db.Column(db.Integer, nullable=False) # Year of the plan
     plan_month = db.Column(db.Integer, nullable=False) # Month of the plan (1-12)
     task_id = db.Column(db.Integer, nullable=True) # Link back to the original MaintenanceTask.id
-
+    
+    original_task = db.relationship('MaintenanceTask')
     # Removed explicit equipment/task relationships here as backrefs are defined in Equipment/MaintenanceTask
     # equipment = db.relationship('Equipment') # This is handled by backref='plan_entries' in Equipment
     # task = db.relationship('MaintenanceTask') # This is handled by backref='plan_entries' in MaintenanceTask
