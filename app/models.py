@@ -141,7 +141,7 @@ class JobCard(db.Model):
             'start_datetime': format_datetime_iso(self.start_datetime),
             'end_datetime': format_datetime_iso(self.end_datetime),
             'comments': self.comments,
-            'is_legal_compliance': self.is_legal_compliance, 
+            'is_legal_compliance': self.is_legal_compliance,
             'job_type_display': self.job_type_display,
         }
         if include_equipment and self.equipment_ref:
@@ -162,6 +162,9 @@ class Checklist(db.Model):
     status = db.Column(db.String(20), nullable=False)
     issues = db.Column(db.Text)
     check_date = db.Column(db.DateTime, nullable=False) # Storing as DateTime
+    # *** START NEW FIELD ***
+    operator = db.Column(db.String(100), nullable=False) # Mandatory field for operator name
+    # *** END NEW FIELD ***
 
     # --- REMOVED explicit ForeignKeyConstraint here as it's now inline ---
     # __table_args__ = (
@@ -170,7 +173,8 @@ class Checklist(db.Model):
     # --- END REMOVAL ---
 
     def __repr__(self):
-        return f'<Checklist {self.id} for Equipment ID:{self.equipment_id}>'
+        # Updated repr to include operator
+        return f'<Checklist {self.id} for Eq ID:{self.equipment_id} by {self.operator}>'
 
     def to_dict(self, include_equipment=False):
         """Returns a dictionary representation for API usage."""
@@ -180,6 +184,7 @@ class Checklist(db.Model):
             'status': self.status,
             'issues': self.issues,
             'check_date': format_datetime_iso(self.check_date),
+            'operator': self.operator, # Added operator
         }
         if include_equipment and self.equipment_ref:
              data['equipment'] = self.equipment_ref.to_dict()
@@ -339,6 +344,10 @@ class MaintenancePlanEntry(db.Model):
     plan_year = db.Column(db.Integer, nullable=False)
     plan_month = db.Column(db.Integer, nullable=False)
 
+    original_task = db.relationship('MaintenanceTask') # Moved relationship here
+    # equipment = db.relationship('Equipment') # Backref handles this
+    # task = db.relationship('MaintenanceTask') # Backref handles this
+
     __table_args__ = (
         # --- REMOVED explicit ForeignKeyConstraints here as they are now inline ---
         Index('ix_maintenance_plan_entry_year_month', 'plan_year', 'plan_month'),
@@ -363,62 +372,13 @@ class MaintenancePlanEntry(db.Model):
         }
         if include_equipment and self.equipment:
              data['equipment'] = self.equipment.to_dict()
-        if include_task_details and self.task:
+        # Correctly use the relationship name 'original_task'
+        if include_task_details and self.original_task:
              data['task_details'] = {
-                 'id': self.task.id,
-                 'description': self.task.description,
+                 'id': self.original_task.id,
+                 'description': self.original_task.description,
+                 'is_legal_compliance': self.original_task.is_legal_compliance, # Add flag here
              }
         return data
 
-    __tablename__ = 'maintenance_plan_entry'
-    id = db.Column(db.Integer, primary_key=True)
-    equipment_id = db.Column(db.Integer, nullable=False)
-    task_description = db.Column(db.String(255), nullable=False)
-    planned_date = db.Column(db.Date, nullable=False) # Store only the date
-    interval_type = db.Column(db.String(50)) # Store type at generation time
-    is_estimate = db.Column(db.Boolean, default=False) # Flag if it was usage-based
-    generated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc)) # Changed default
-    plan_year = db.Column(db.Integer, nullable=False) # Year of the plan
-    plan_month = db.Column(db.Integer, nullable=False) # Month of the plan (1-12)
-    task_id = db.Column(db.Integer, nullable=True) # Link back to the original MaintenanceTask.id
-    
-    original_task = db.relationship('MaintenanceTask')
-    # Removed explicit equipment/task relationships here as backrefs are defined in Equipment/MaintenanceTask
-    # equipment = db.relationship('Equipment') # This is handled by backref='plan_entries' in Equipment
-    # task = db.relationship('MaintenanceTask') # This is handled by backref='plan_entries' in MaintenanceTask
-
-    __table_args__ = (
-        db.ForeignKeyConstraint(['equipment_id'], ['equipment.id'], name='fk_plan_entry_equipment_id'),
-        # Ensure task_id foreign key constraint matches definition in MaintenanceTask
-        db.ForeignKeyConstraint(['task_id'], ['maintenance_task.id'], name='fk_plan_entry_task_id', use_alter=True, ondelete='SET NULL'),
-        Index('ix_maintenance_plan_entry_year_month', 'plan_year', 'plan_month'), # Index
-    )
-
-    def __repr__(self):
-        return f'<MaintenancePlanEntry Eq:{self.equipment_id} Task:"{self.task_description}" Date:{self.planned_date}>'
-
-    def to_dict(self, include_equipment=False, include_task_details=False):
-        """Returns a dictionary representation for API usage."""
-        data = {
-            'id': self.id,
-            'equipment_id': self.equipment_id,
-            'task_id': self.task_id,
-            'task_description': self.task_description,
-            'planned_date': format_datetime_iso(self.planned_date), # Will format date as YYYY-MM-DD
-            'interval_type': self.interval_type,
-            'is_estimate': self.is_estimate,
-            'generated_at': format_datetime_iso(self.generated_at),
-            'plan_year': self.plan_year,
-            'plan_month': self.plan_month,
-        }
-        # Use the backrefs to access related objects if needed
-        if include_equipment and self.equipment:
-             data['equipment'] = self.equipment.to_dict()
-        if include_task_details and self.task:
-             data['task_details'] = {
-                 'id': self.task.id,
-                 'description': self.task.description,
-                 'is_legal_compliance': self.task.is_legal_compliance, # Add flag here
-                 # Add other relevant task fields if needed
-             }
-        return data
+# Note: Removed the duplicate MaintenancePlanEntry class definition

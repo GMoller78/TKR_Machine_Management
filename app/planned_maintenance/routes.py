@@ -1850,6 +1850,8 @@ def delete_job_card(id):
 
 # ==============================================================================
 # === Check Lists ===
+# ==============================================================================
+
 @bp.route('/checklist/new', methods=['POST'])
 def new_checklist():
     """Logs a new equipment checklist."""
@@ -1859,11 +1861,14 @@ def new_checklist():
             equipment_id = request.form.get('equipment_id', type=int)
             status = request.form.get('status')
             issues = request.form.get('issues') # Optional
-            # *** Get the new date/time string ***
             check_date_str = request.form.get('check_date')
+            # *** Get the new operator name ***
+            operator_name = request.form.get('operator', '').strip() # Get and strip whitespace
 
-            if not equipment_id or not status or not check_date_str:
-                flash('Equipment, Status, and Check Date/Time are required for checklist.', 'warning')
+            # *** Update validation ***
+            if not equipment_id or not status or not check_date_str or not operator_name:
+                # Updated error message
+                flash('Equipment, Status, Check Date/Time, and Operator Name are required for checklist.', 'warning')
                 return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
             # Validate status value
@@ -1872,17 +1877,15 @@ def new_checklist():
                 flash(f'Invalid status "{status}" selected.', 'warning')
                 return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
-            # *** Parse and Validate Date/Time ***
+            # *** Parse and Validate Date/Time *** (Existing code)
             try:
-                # Parse the string from datetime-local input (usually ISO format without Z)
                 parsed_dt = parse_datetime(check_date_str)
-                # Assume the naive datetime represents UTC time, make it timezone-aware
                 check_date_utc = parsed_dt.replace(tzinfo=timezone.utc)
                 logging.debug(f"Parsed check date string '{check_date_str}' to naive {parsed_dt}, assumed UTC: {check_date_utc} ({check_date_utc.tzinfo})")
             except ValueError:
                 flash("Invalid Check Date/Time format submitted.", "warning")
                 return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
-            except Exception as parse_err: # Catch other potential parsing errors
+            except Exception as parse_err:
                 logging.error(f"Error parsing check_date '{check_date_str}': {parse_err}", exc_info=True)
                 flash(f"Error parsing check date: {parse_err}", "danger")
                 return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
@@ -1892,23 +1895,25 @@ def new_checklist():
                  flash('Selected equipment not found.', 'danger')
                  return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
-            # Create checklist entry using the parsed date
+            # *** Update Checklist creation to include operator ***
             new_log = Checklist(
                 equipment_id=equipment_id,
                 status=status,
                 issues=issues,
-                check_date=check_date_utc # Use the parsed and UTC-aware datetime
+                check_date=check_date_utc,
+                operator=operator_name # Add the operator name here
             )
             db.session.add(new_log)
             db.session.commit()
-            flash(f'Checklist logged successfully for {equipment.name} with status "{status}" at {check_date_utc.strftime("%Y-%m-%d %H:%M UTC")}.', 'success')
+            # Updated flash message
+            flash(f'Checklist logged successfully by {operator_name} for {equipment.name} with status "{status}" at {check_date_utc.strftime("%Y-%m-%d %H:%M UTC")}.', 'success')
 
         except Exception as e:
             db.session.rollback()
-            logging.error(f"Error logging checklist: {e}", exc_info=True) # Log the full error
+            logging.error(f"Error logging checklist: {e}", exc_info=True)
             flash(f"Error logging checklist: {e}", "danger")
 
-        return redirect(request.referrer or url_for('planned_maintenance.dashboard')) # Redirect back to where the form was
+        return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
     # If accessed via GET, just redirect away
     return redirect(url_for('planned_maintenance.dashboard'))
@@ -2574,23 +2579,89 @@ def generate_next_job_number(job_type='MAINT'):
 # ==============================================================================
 @bp.route('/checklist_logs', methods=['GET'])
 def checklist_logs():
-    """Displays checklist logs, optionally filtered by equipment."""
-    equipment_id = request.args.get('equipment_id', type=int)
-    query = Checklist.query.options(db.joinedload(Checklist.equipment_ref)) # Eager load
-    if equipment_id:
-        query = query.filter(Checklist.equipment_id == equipment_id)
-    # Order by check date descending
-    logs = query.order_by(desc(Checklist.check_date)).all()
-    equipment_list = Equipment.query.order_by(Equipment.name).all()
-    # Get selected equipment name if filtered
-    selected_equipment = Equipment.query.get(equipment_id) if equipment_id else None
-    return render_template('pm_checklist_logs.html',
-                           logs=logs,
-                           equipment_list=equipment_list, # Renamed for clarity
-                           selected_equipment_id=equipment_id, # Renamed for clarity
-                           selected_equipment=selected_equipment, # Pass the object too
-                           title='Checklist Logs')
+    """Displays checklist logs in a matrix: equipment vs. last 10 days (grouped by date)."""
+    logging.debug("--- Request for Checklist Log 10-Day Matrix View ---")
+    try:
+        # 1. Determine Date Range (Last 10 days including today)
+        today = date.today()
+        # <<< CHANGED: timedelta days from 6 to 9 >>>
+        start_date = today - timedelta(days=9)
+        # <<< CHANGED: range from 7 to 10 >>>
+        dates_in_range = [start_date + timedelta(days=i) for i in range(10)] # List of date objects
 
+        logging.debug(f"Date range for checklist matrix: {start_date} to {today}")
+
+        # 2. Fetch all Equipment
+        all_equipment = Equipment.query.order_by(Equipment.code).all()
+        if not all_equipment:
+            flash("No equipment found.", "info")
+            return render_template('pm_checklist_logs_matrix.html', # Still use matrix template
+                                   all_equipment=[],
+                                   dates_in_range=[],
+                                   processed_data={},
+                                   title='Checklist Log Matrix (Weekly)') # Title updated below
+
+        equipment_ids = [eq.id for eq in all_equipment]
+
+        # 3. Fetch Relevant Logs within the date range
+        range_start_dt_utc = datetime.combine(start_date, time.min).replace(tzinfo=timezone.utc)
+        range_end_dt_utc = datetime.combine(today, time.max).replace(tzinfo=timezone.utc)
+
+        relevant_logs_query = Checklist.query.filter(
+            Checklist.equipment_id.in_(equipment_ids),
+            Checklist.check_date >= range_start_dt_utc,
+            Checklist.check_date <= range_end_dt_utc
+        ).options(
+            db.joinedload(Checklist.equipment_ref)
+        ).order_by(
+            Checklist.equipment_id,
+            desc(Checklist.check_date) # Latest check first for each equipment/day
+        )
+
+        relevant_logs = relevant_logs_query.all()
+        logging.debug(f"Found {len(relevant_logs)} checklist logs within the date range.")
+
+        # 4. Process logs into the desired structure (No changes needed in this part)
+        processed_data = defaultdict(dict)
+        for log in relevant_logs:
+            eq_id = log.equipment_id
+            log_date_only = log.check_date.astimezone(timezone.utc).date()
+
+            if log_date_only not in processed_data[eq_id]:
+                comments = log.issues or ""
+                full_timestamp_str = log.check_date.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+
+                processed_data[eq_id][log_date_only] = {
+                    'status': log.status,
+                    'operator': log.operator or 'N/A',
+                    'comments': comments.strip(),
+                    'full_timestamp_str': full_timestamp_str
+                }
+
+        logging.debug(f"Processed data structure contains entries for {len(processed_data)} equipment.")
+
+        # <<< CHANGED: Updated title string >>>
+        view_title = 'Checklist Log Matrix (Last 10 Days)'
+
+        # 5. Render the template
+        return render_template(
+            'pm_checklist_logs_matrix.html', # Reuse the matrix template name
+            all_equipment=all_equipment,
+            dates_in_range=dates_in_range, # Pass the list of date objects for columns
+            processed_data=processed_data,
+            title=view_title # Pass the updated title
+        )
+
+    except Exception as e:
+        logging.error(f"--- Error loading checklist log matrix view: {e} ---", exc_info=True)
+        flash(f"An error occurred while loading the checklist logs: {e}", "danger")
+        # Render template safely on error
+        return render_template('pm_checklist_logs_matrix.html',
+                               all_equipment=[],
+                               dates_in_range=[],
+                               processed_data={},
+                               error=f"Could not load logs: {e}",
+                               title='Checklist Log Matrix - Error')
 @bp.route('/usage_logs', methods=['GET'])
 def usage_logs():
     """Displays usage logs with filters."""

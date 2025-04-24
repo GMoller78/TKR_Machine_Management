@@ -26,13 +26,26 @@
             <li class="nav-item">
               <a class="nav-link {% if request.endpoint == 'planned_maintenance.tasks_list' %}active{% endif %}" href="{{ url_for('planned_maintenance.tasks_list') }}">Maintenance Tasks</a>
             </li>
-            <li class="nav-item">
+             <li class="nav-item">
               <a class="nav-link {% if request.endpoint == 'planned_maintenance.legal_tasks_list' %}active{% endif %}" href="{{ url_for('planned_maintenance.legal_tasks_list') }}">Legal Compliance</a>
             </li>
             <li class="nav-item">
               <a class="nav-link {% if request.endpoint == 'planned_maintenance.job_card_list' %}active{% endif %}" href="{{ url_for('planned_maintenance.job_card_list') }}">Job Cards</a>
             </li>
+            <li class="nav-item">
+              <a class="nav-link {% if request.endpoint == 'planned_maintenance.maintenance_plan_list_view' %}active{% endif %}" href="{{ url_for('planned_maintenance.maintenance_plan_list_view') }}">Planning</a>
+            </li>
             <!-- Add other PM links as needed -->
+             <li class="nav-item dropdown"> {# Added dropdown for Logs #}
+                <a class="nav-link dropdown-toggle {% if request.endpoint.endswith('_logs') %}active{% endif %}" href="#" id="navbarDropdownLogs" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    Logs
+                </a>
+                <ul class="dropdown-menu dropdown-menu-dark" aria-labelledby="navbarDropdownLogs">
+                    <li><a class="dropdown-item {% if request.endpoint == 'planned_maintenance.checklist_logs' %}active{% endif %}" href="{{ url_for('planned_maintenance.checklist_logs') }}">Checklist Logs</a></li>
+                    <li><a class="dropdown-item {% if request.endpoint == 'planned_maintenance.usage_logs' %}active{% endif %}" href="{{ url_for('planned_maintenance.usage_logs') }}">Usage Logs</a></li>
+                    {# Add other log links here if needed #}
+                </ul>
+            </li>
           </ul>
            <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
              <li class="nav-item">
@@ -43,12 +56,13 @@
       </div>
     </nav>
 
-    <div class="container mt-4">
+    <div class="container-fluid mt-4"> {# Changed container to container-fluid for wider layout #}
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
           {% for category, message in messages %}
             <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-              {{ message }}
+              {# Use safe filter for messages potentially containing HTML #}
+              {{ message|safe }}
               <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
             </div>
           {% endfor %}
@@ -57,9 +71,16 @@
 
       {% block content %}
       {% endblock %}
-    </div>
+    </div> {# End container-fluid #}
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
-    <!-- Optional: Add custom JS link here -->
+
+    {# -------- ADDED THIS BLOCK -------- #}
+    {% block scripts %}
+        {# Page-specific scripts will be inserted here by child templates #}
+    {% endblock scripts %}
+    {# --------------------------------- #}
+
+    <!-- Optional: Add other custom JS links here -->
   </body>
 </html>

@@ -1,0 +1,108 @@
+{% extends "pm_base.html" %}
+
+{% block title %}{{ title }} - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="mb-4">{{ title }}</h1>
+    <div class="row mb-3">
+        <div class="col-12">
+             <a href="{{ url_for('planned_maintenance.dashboard') }}" class="btn btn-sm btn-outline-secondary">Back to Dashboard</a>
+             {# <<< CHANGED: Updated descriptive text >>> #}
+             <small class="text-muted ms-3">Showing latest check status per day for the last 10 days.</small>
+        </div>
+    </div>
+
+    {% if error %}
+        <div class="alert alert-danger" role="alert">
+            {{ error }}
+        </div>
+    {% endif %}
+
+    {% if all_equipment and dates_in_range %}
+        <div class="table-responsive">
+            {# <<< CHANGED: Adjusted min-width for more columns >>> #}
+            <table class="table table-bordered table-hover table-sm" style="table-layout: fixed; min-width: 1200px;">
+                <thead class="table-light">
+                    <tr>
+                         {# <<< CHANGED: Adjusted width for equipment column >>> #}
+                        <th style="width: 15%; vertical-align: middle;" class="text-center">Equipment Code</th>
+                        {% for day_date in dates_in_range %}
+                            {# <<< CHANGED: Adjusted width for date columns (100-15)/10 = 8.5% >>> #}
+                            <th class="text-center align-middle small" style="width: 8.5%;">
+                                {{ day_date.strftime('%a') }}
+                                <div class="text-muted" style="font-size: 0.9em;">{{ day_date.strftime('%d') }}</div>
+                            </th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for eq in all_equipment %}
+                        <tr>
+                            <td class="fw-bold align-middle">
+                                {{ eq.code }}
+                                <div class="text-muted small">{{ eq.name }}</div>
+                            </td>
+
+                            {% for day_date in dates_in_range %}
+                                <td class="text-center align-middle">
+                                    {% set log_data = processed_data.get(eq.id, {}).get(day_date) %}
+
+                                    {% if log_data %}
+                                        {# --- Prepare Tooltip Content (includes full comment) --- #}
+                                        {% set tooltip_title = log_data.full_timestamp_str + '<br>Op: ' + log_data.operator %}
+                                        {% if log_data.comments %}
+                                            {% set tooltip_title = tooltip_title + '<br>Notes: ' + log_data.comments|escape %}
+                                        {% endif %}
+
+                                        {#--- Status Badge with Tooltip ---#}
+                                        <span
+                                            class="badge {% if log_data.status == 'Go' %}bg-success{% elif log_data.status == 'Go But' %}bg-warning text-dark{% else %}bg-danger{% endif %}"
+                                            data-bs-toggle="tooltip"
+                                            data-bs-placement="top"
+                                            data-bs-html="true"
+                                            title="{{ tooltip_title|safe }}"
+                                        >
+                                            {{ log_data.status }}
+                                        </span>
+
+                                        {# <<< ADDED: Display truncated comment in the cell >>> #}
+                                        {% if log_data.comments %}
+                                            <div class="small text-muted mt-1"
+                                                 style="font-size: 0.75em; line-height: 1.2; white-space: normal; word-break: break-word; max-height: 3.6em; overflow: hidden;">
+                                                {{ log_data.comments|truncate(40, True)|escape }} {# Truncate to ~40 chars, add ellipsis, escape HTML #}
+                                            </div>
+                                        {% endif %}
+                                        {# <<< END ADDED >>> #}
+
+                                    {% else %}
+                                        <span class="text-muted" style="font-size: 0.8em;">-</span>
+                                    {% endif %}
+                                </td>
+                            {% endfor %}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% elif not error %}
+        {# <<< CHANGED: Updated text for 10 days >>> #}
+        <p class="text-muted text-center">No checklist logs or equipment found to display for the last 10 days.</p>
+    {% endif %}
+
+</div>
+
+{#--- Tooltip Initialization Script (No changes needed here) ---#}
+{% block scripts %}
+{{ super() }}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+    });
+</script>
+{% endblock %}
+
+{% endblock %}
