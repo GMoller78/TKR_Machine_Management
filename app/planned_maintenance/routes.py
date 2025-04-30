@@ -378,49 +378,64 @@ def maintenance_plan_pdf():
 # === NEW Route: List Generated Maintenance Plans ===
 # ==============================================================================
 
-@bp.route('/maintenance_plan/detail', methods=['GET']) # Path remains the same
+@bp.route('/maintenance_plan/detail', methods=['GET'])
 def maintenance_plan_detail_view():
+    """
+    Displays the detailed maintenance plan for a given month and year,
+    including planned tasks, completed job cards, and 'To Do' job cards due
+    within that month. Allows filtering by equipment type.
+    """
     logging.debug("--- Request for Maintenance Plan Detail View ---")
     try:
         # 1. Get Target Month/Year and Filters from Query Parameters
         try:
             year = request.args.get('year', type=int)
             month = request.args.get('month', type=int)
-            # --- NEW: Get Equipment Type Filter ---
+            # Get Equipment Type Filter
             equipment_type_filter = request.args.get('equipment_type', None) # Get filter value, default to None
 
             if not year or not month:
                 flash("Year and Month are required to view plan details.", "warning")
                 return redirect(url_for('planned_maintenance.maintenance_plan_list_view'))
 
+            # Basic date validation
             if not (1 <= month <= 12): raise ValueError("Month out of range")
             current_year_check = date.today().year
+            # Allow viewing plans for a reasonable range around the current year
             if not (current_year_check - 10 <= year <= current_year_check + 10): raise ValueError("Year out of reasonable range")
 
         except (ValueError, TypeError):
             flash("Invalid year or month specified.", "warning")
             return redirect(url_for('planned_maintenance.maintenance_plan_list_view'))
 
-        # Calculate Date Range and Month Name
+        # 2. Calculate Date Range and Month Name
         try:
             plan_start_date = date(year, month, 1)
             days_in_month = monthrange(year, month)[1]
             plan_end_date = date(year, month, days_in_month)
             month_name_str = plan_start_date.strftime("%B %Y")
-            # Define start and end datetime for job card filtering (naive)
-            month_start_dt = datetime.combine(plan_start_date, time.min)
-            month_end_dt = datetime.combine(plan_end_date, time.max)
+
+            # Define datetime ranges for filtering Job Cards based on DB column types
+            # For Completed JCs (filter by end_datetime which is DateTime)
+            month_start_dt_completion = datetime.combine(plan_start_date, time.min)
+            month_end_dt_completion = datetime.combine(plan_end_date, time.max)
+            # For ToDo JCs (filter by due_date which is DateTime)
+            month_start_dt_due_date = datetime.combine(plan_start_date, time.min)
+            month_end_dt_due_date = datetime.combine(plan_end_date, time.max)
+
         except ValueError:
              flash(f"Cannot display plan details for invalid date {month}/{year}.", "danger")
              return redirect(url_for('planned_maintenance.maintenance_plan_list_view'))
 
         logging.info(f"Displaying plan detail view for: {month_name_str}, Type Filter: '{equipment_type_filter}'")
 
-        # --- NEW: Fetch Equipment Types for Filter Dropdown ---
+        # 3. Fetch Equipment Types for Filter Dropdown
         equipment_types_query = db.session.query(Equipment.type).distinct().order_by(Equipment.type).all()
         equipment_types = [t[0] for t in equipment_types_query if t[0]] # Get non-empty types
 
-        # 2. Fetch Planned Entries for the period (with filtering)
+        # 4. Fetch Data: Planned Entries, Completed JCs, ToDo JCs
+
+        # Fetch Planned Entries for the period (with filtering)
         logging.debug(f"Querying stored plan entries for {year}-{month}...")
         plan_entries_query = MaintenancePlanEntry.query.filter(
             MaintenancePlanEntry.plan_year == year,
@@ -429,43 +444,58 @@ def maintenance_plan_detail_view():
              db.joinedload(MaintenancePlanEntry.equipment), # Eager load equipment
              db.joinedload(MaintenancePlanEntry.original_task) # Eager load original task
         )
-
-        # --- Apply Equipment Type Filter to Planned Entries ---
+        # Apply Equipment Type Filter to Planned Entries
         if equipment_type_filter and equipment_type_filter != 'All':
             plan_entries_query = plan_entries_query.join(Equipment, MaintenancePlanEntry.equipment_id == Equipment.id)\
                                                  .filter(Equipment.type == equipment_type_filter)
-
         plan_entries = plan_entries_query.order_by(MaintenancePlanEntry.planned_date).all()
         logging.debug(f"Found {len(plan_entries)} planned entries matching filters.")
 
-        # 3. Fetch Completed Job Cards for the period (with filtering)
-        logging.debug(f"Querying completed job cards between {month_start_dt} and {month_end_dt}...")
+        # Fetch Completed Job Cards for the period (with filtering)
+        logging.debug(f"Querying completed job cards ended between {month_start_dt_completion} and {month_end_dt_completion}...")
         completed_job_cards_query = JobCard.query.filter(
             JobCard.status == 'Done',
             JobCard.end_datetime.isnot(None), # Ensure completion time exists
-            JobCard.end_datetime >= month_start_dt, # Completion time within the month
-            JobCard.end_datetime <= month_end_dt
+            JobCard.end_datetime >= month_start_dt_completion, # Completion time within the month
+            JobCard.end_datetime <= month_end_dt_completion
         ).options(
              db.joinedload(JobCard.equipment_ref) # Eager load equipment
         )
-
-        # --- Apply Equipment Type Filter to Completed Job Cards ---
+        # Apply Equipment Type Filter to Completed Job Cards
         if equipment_type_filter and equipment_type_filter != 'All':
             completed_job_cards_query = completed_job_cards_query.join(Equipment, JobCard.equipment_id == Equipment.id)\
                                                                .filter(Equipment.type == equipment_type_filter)
-
         completed_job_cards = completed_job_cards_query.order_by(JobCard.end_datetime).all()
         logging.debug(f"Found {len(completed_job_cards)} completed job cards matching filters.")
 
-        # 4. --- NEW: Structure Data by Day ---
-        daily_plan_data = defaultdict(lambda: {'planned': [], 'completed': []})
+        # Fetch "To Do" Job Cards Due This Month (with filtering)
+        logging.debug(f"Querying 'To Do' job cards due between {month_start_dt_due_date} and {month_end_dt_due_date}...")
+        todo_job_cards_query = JobCard.query.filter(
+            JobCard.status == 'To Do',
+            JobCard.due_date.isnot(None), # Ensure due date exists
+            JobCard.due_date >= month_start_dt_due_date, # Due date within the month
+            JobCard.due_date <= month_end_dt_due_date
+        ).options(
+             db.joinedload(JobCard.equipment_ref) # Eager load equipment
+        )
+        # Apply Equipment Type Filter to "To Do" Job Cards
+        if equipment_type_filter and equipment_type_filter != 'All':
+            todo_job_cards_query = todo_job_cards_query.join(Equipment, JobCard.equipment_id == Equipment.id)\
+                                                               .filter(Equipment.type == equipment_type_filter)
+        todo_job_cards = todo_job_cards_query.order_by(JobCard.due_date).all()
+        logging.debug(f"Found {len(todo_job_cards)} 'To Do' job cards matching filters.")
+
+        # 5. Structure Data by Day
+        # Initialize structure to hold planned, completed, and todo items for each day
+        daily_plan_data = defaultdict(lambda: {'planned': [], 'completed': [], 'todo': []})
         generation_info = "Plan not generated or no tasks found for this period/filter."
 
         # Process planned entries
         if plan_entries:
-            # Determine generation info from the *first* found entry (assuming all generated together)
+            # Determine generation info from the *first* found entry
             first_entry_gen_time = plan_entries[0].generated_at
             if first_entry_gen_time:
+                 # Ensure naive UTC for display consistency
                  if first_entry_gen_time.tzinfo is not None:
                      first_entry_gen_time = first_entry_gen_time.astimezone(timezone.utc).replace(tzinfo=None)
                  generation_info = f"Plan generated on: {first_entry_gen_time.strftime('%Y-%m-%d %H:%M UTC')}"
@@ -486,7 +516,7 @@ def maintenance_plan_detail_view():
 
         # Process completed job cards
         for jc in completed_job_cards:
-            # Jobs have datetime, group by date part
+            # Group by the DATE part of the end_datetime
             if jc.end_datetime:
                  day_date = jc.end_datetime.date() # Key is the date object
                  # Determine if legal from job number prefix
@@ -500,15 +530,26 @@ def maintenance_plan_detail_view():
             else:
                 logging.warning(f"Completed Job Card {jc.job_number} has no end_datetime, cannot place in daily view.")
 
+        # Process "To Do" job cards
+        for jc in todo_job_cards:
+            # Group by the DATE part of the due_date
+            if jc.due_date:
+                 day_date = jc.due_date.date() # Key is the date object
+                 is_legal = jc.job_number and jc.job_number.startswith('LC-')
+                 daily_plan_data[day_date]['todo'].append({
+                    'job_card': jc,
+                    'equipment': jc.equipment_ref, # Pass equipment object
+                    'is_legal': is_legal,
+                    'description': jc.description
+                 })
+            else:
+                 # This case is excluded by the query filter (due_date.isnot(None))
+                 logging.warning(f"'To Do' Job Card {jc.job_number} has no due_date despite query filter, cannot place in daily view.")
 
-        # Sort the daily data by date (although defaultdict might maintain order, explicit sort is safer)
+        # 6. Sort the daily data by date for display order
         sorted_daily_plan_data = dict(sorted(daily_plan_data.items()))
 
-        # Generate list of all dates in the month for the template to iterate (optional, but can help show empty days)
-        # dates_in_month = [plan_start_date + timedelta(days=d) for d in range(days_in_month)]
-
-
-        # 5. Render Detail Template with New Structure
+        # 7. Render Detail Template with the structured data
         logging.debug("Rendering maintenance_plan_detail.html (daily view)")
         return render_template(
             'maintenance_plan_detail.html', # Use the updated template
@@ -516,13 +557,14 @@ def maintenance_plan_detail_view():
             month_name=month_name_str,
             current_year=year,
             current_month=month,
-            daily_plan_data=sorted_daily_plan_data, # Pass the NEW data structure
+            daily_plan_data=sorted_daily_plan_data, # Pass the data structure containing planned, completed, and todo
             generation_info=generation_info,
             equipment_types=equipment_types, # Pass types for filter dropdown
             current_equipment_type_filter=equipment_type_filter, # Pass current filter value
-            WEASYPRINT_AVAILABLE = WEASYPRINT_AVAILABLE # Pass PDF availability flag
+            WEASYPRINT_AVAILABLE=WEASYPRINT_AVAILABLE # Pass PDF availability flag
         )
 
+    # Global Error Handling for the route
     except Exception as e:
         logging.error(f"--- Error loading maintenance plan detail view: {e} ---", exc_info=True)
         flash(f"An error occurred while loading the plan details: {e}", "danger")
@@ -533,31 +575,92 @@ def maintenance_plan_detail_view():
 # === NEW Route: Print Plan Details (Daily Layout) ===
 # ==============================================================================
 
+# tkr_system/app/routes.py
+
+# ... (Keep all other imports at the top of the file) ...
+from flask import render_template, request, redirect, url_for, flash, make_response, session, jsonify
+from urllib.parse import urlencode
+from datetime import datetime, timedelta, timezone, date, time
+from dateutil.parser import parse as parse_datetime
+from dateutil.relativedelta import relativedelta
+from calendar import monthrange
+from io import BytesIO
+from app.planned_maintenance import bp
+from app import db
+from app.models import (
+    Equipment, JobCard, Checklist, StockTransaction,
+    JobCardPart, Part, MaintenanceTask, UsageLog,
+    MaintenancePlanEntry
+)
+from itertools import zip_longest
+from sqlalchemy import desc, func, extract, and_, or_
+import traceback
+from collections import defaultdict
+import logging # Make sure logging is imported
+
+# ... (Keep Weasyprint setup, helper functions like generate_whatsapp_share_url, etc.) ...
+# ... (Keep the maintenance_plan_detail_view function as rewritten previously) ...
+
+
+# ==============================================================================
+# === Print Plan Details (Daily Layout) (Rewritten with ToDo JCs) ===
+# ==============================================================================
 @bp.route('/maintenance_plan/print_detail', methods=['GET'])
 def print_maintenance_plan_detail():
+    """
+    Generates an HTML page suitable for printing, displaying the maintenance
+    plan details for a given month and year (planned tasks, completed jobs,
+    and 'To Do' jobs due in the month). Allows filtering by equipment type.
+    """
     logging.debug("--- Request for Maintenance Plan Detail Print View ---")
     try:
-        # 1. Get Target Month/Year and Filters (same as detail view)
-        year = request.args.get('year', type=int)
-        month = request.args.get('month', type=int)
-        equipment_type_filter = request.args.get('equipment_type', None)
+        # 1. Get Target Month/Year and Filters from Query Parameters
+        try:
+            year = request.args.get('year', type=int)
+            month = request.args.get('month', type=int)
+            equipment_type_filter = request.args.get('equipment_type', None)
 
-        if not year or not month:
-            flash("Year and Month are required to print plan details.", "warning")
-            return redirect(url_for('planned_maintenance.maintenance_plan_list_view')) # Or maybe detail view?
+            if not year or not month:
+                flash("Year and Month are required to print plan details.", "warning")
+                # Redirect back to the detail view which can handle missing params better
+                return redirect(url_for('planned_maintenance.maintenance_plan_detail_view'))
 
-        # Validate dates (simplified for brevity, copy from detail view if needed)
-        plan_start_date = date(year, month, 1)
-        days_in_month = monthrange(year, month)[1]
-        plan_end_date = date(year, month, days_in_month)
-        month_name_str = plan_start_date.strftime("%B %Y")
-        month_start_dt = datetime.combine(plan_start_date, time.min)
-        month_end_dt = datetime.combine(plan_end_date, time.max)
+            # Basic date validation
+            if not (1 <= month <= 12): raise ValueError("Month out of range")
+            current_year_check = date.today().year
+            if not (current_year_check - 10 <= year <= current_year_check + 10): raise ValueError("Year out of reasonable range")
+
+        except (ValueError, TypeError):
+            flash("Invalid year or month specified for printing.", "warning")
+            # Redirect back to the detail view
+            detail_url = url_for('planned_maintenance.maintenance_plan_detail_view', year=request.args.get('year'), month=request.args.get('month'), equipment_type=request.args.get('equipment_type'))
+            return redirect(detail_url)
+
+        # 2. Calculate Date Range and Month Name
+        try:
+            plan_start_date = date(year, month, 1)
+            days_in_month = monthrange(year, month)[1]
+            plan_end_date = date(year, month, days_in_month)
+            month_name_str = plan_start_date.strftime("%B %Y")
+
+            # Define datetime ranges for filtering Job Cards
+            month_start_dt_completion = datetime.combine(plan_start_date, time.min)
+            month_end_dt_completion = datetime.combine(plan_end_date, time.max)
+            month_start_dt_due_date = datetime.combine(plan_start_date, time.min)
+            month_end_dt_due_date = datetime.combine(plan_end_date, time.max)
+
+        except ValueError:
+             flash(f"Cannot generate print view for invalid date {month}/{year}.", "danger")
+             # Redirect back to the detail view
+             detail_url = url_for('planned_maintenance.maintenance_plan_detail_view', year=year, month=month, equipment_type=equipment_type_filter)
+             return redirect(detail_url)
 
         logging.info(f"Generating Print view for: {month_name_str}, Type Filter: '{equipment_type_filter}'")
 
-        # 2. Fetch Data (mirrors the logic in maintenance_plan_detail_view)
+        # 3. Fetch Data (mirroring the detail view logic)
+
         # Fetch Planned Entries (with filtering)
+        logging.debug(f"Print: Querying stored plan entries for {year}-{month}...")
         plan_entries_query = MaintenancePlanEntry.query.filter(
             MaintenancePlanEntry.plan_year == year,
             MaintenancePlanEntry.plan_month == month
@@ -569,21 +672,40 @@ def print_maintenance_plan_detail():
             plan_entries_query = plan_entries_query.join(Equipment, MaintenancePlanEntry.equipment_id == Equipment.id)\
                                                  .filter(Equipment.type == equipment_type_filter)
         plan_entries = plan_entries_query.order_by(MaintenancePlanEntry.planned_date).all()
+        logging.debug(f"Print: Found {len(plan_entries)} planned entries.")
 
         # Fetch Completed Job Cards (with filtering)
+        logging.debug(f"Print: Querying completed job cards ended between {month_start_dt_completion} and {month_end_dt_completion}...")
         completed_job_cards_query = JobCard.query.filter(
             JobCard.status == 'Done',
             JobCard.end_datetime.isnot(None),
-            JobCard.end_datetime >= month_start_dt,
-            JobCard.end_datetime <= month_end_dt
+            JobCard.end_datetime >= month_start_dt_completion,
+            JobCard.end_datetime <= month_end_dt_completion
         ).options(db.joinedload(JobCard.equipment_ref))
         if equipment_type_filter and equipment_type_filter != 'All':
             completed_job_cards_query = completed_job_cards_query.join(Equipment, JobCard.equipment_id == Equipment.id)\
                                                                .filter(Equipment.type == equipment_type_filter)
         completed_job_cards = completed_job_cards_query.order_by(JobCard.end_datetime).all()
+        logging.debug(f"Print: Found {len(completed_job_cards)} completed job cards.")
 
-        # 3. Structure Data by Day (mirrors the logic in maintenance_plan_detail_view)
-        daily_plan_data = defaultdict(lambda: {'planned': [], 'completed': []})
+        # Fetch "To Do" Job Cards Due This Month (with filtering)
+        logging.debug(f"Print: Querying 'To Do' job cards due between {month_start_dt_due_date} and {month_end_dt_due_date}...")
+        todo_job_cards_query = JobCard.query.filter(
+            JobCard.status == 'To Do',
+            JobCard.due_date.isnot(None),
+            JobCard.due_date >= month_start_dt_due_date,
+            JobCard.due_date <= month_end_dt_due_date
+        ).options(db.joinedload(JobCard.equipment_ref))
+        if equipment_type_filter and equipment_type_filter != 'All':
+            todo_job_cards_query = todo_job_cards_query.join(Equipment, JobCard.equipment_id == Equipment.id)\
+                                                               .filter(Equipment.type == equipment_type_filter)
+        todo_job_cards = todo_job_cards_query.order_by(JobCard.due_date).all()
+        logging.debug(f"Print: Found {len(todo_job_cards)} 'To Do' job cards.")
+
+        # 4. Structure Data by Day (mirroring the detail view logic)
+        daily_plan_data = defaultdict(lambda: {'planned': [], 'completed': [], 'todo': []})
+
+        # Process planned entries
         for entry in plan_entries:
             day_date = entry.planned_date
             is_legal = entry.original_task.is_legal_compliance if entry.original_task else False
@@ -591,6 +713,8 @@ def print_maintenance_plan_detail():
                 'entry': entry, 'equipment': entry.equipment, 'is_legal': is_legal,
                 'is_estimate': entry.is_estimate, 'description': entry.task_description
             })
+
+        # Process completed job cards
         for jc in completed_job_cards:
             if jc.end_datetime:
                  day_date = jc.end_datetime.date()
@@ -599,25 +723,45 @@ def print_maintenance_plan_detail():
                     'job_card': jc, 'equipment': jc.equipment_ref, 'is_legal': is_legal,
                     'description': jc.description
                  })
+
+        # Process "To Do" job cards
+        for jc in todo_job_cards:
+            if jc.due_date:
+                 day_date = jc.due_date.date()
+                 is_legal = jc.job_number and jc.job_number.startswith('LC-')
+                 daily_plan_data[day_date]['todo'].append({
+                    'job_card': jc,
+                    'equipment': jc.equipment_ref,
+                    'is_legal': is_legal,
+                    'description': jc.description
+                 })
+
+        # Sort the daily data by date
         sorted_daily_plan_data = dict(sorted(daily_plan_data.items()))
 
-        # 4. Render Print Template
+        # 5. Render Print Template
         logging.debug("Rendering maintenance_plan_print_detail.html")
         return render_template(
-            'maintenance_plan_print_detail.html', # NEW Print Template
+            'maintenance_plan_print_detail.html', # The print-specific template
             title=f"Print Plan - {month_name_str}",
             month_name=month_name_str,
-            daily_plan_data=sorted_daily_plan_data,
+            daily_plan_data=sorted_daily_plan_data, # Pass the structured data
             equipment_type_filter=equipment_type_filter # Pass filter info to display on printout
         )
 
+    # Global Error Handling for the route
     except Exception as e:
         logging.error(f"--- Error generating maintenance plan print view: {e} ---", exc_info=True)
         flash(f"An error occurred while generating the printable plan: {e}", "danger")
-        # Redirect back to the detail view on error
-        # Construct the URL for the detail view with the original year and month
-        detail_url = url_for('planned_maintenance.maintenance_plan_detail_view', year=request.args.get('year'), month=request.args.get('month'), equipment_type=request.args.get('equipment_type'))
+        # Redirect back to the detail view on error, preserving filters
+        detail_url = url_for('planned_maintenance.maintenance_plan_detail_view',
+                             year=request.args.get('year'),
+                             month=request.args.get('month'),
+                             equipment_type=request.args.get('equipment_type'))
         return redirect(detail_url)
+
+# ... (Keep the rest of your routes.py file) ...
+
 # ==============================================================================
 # === Dashboard Route ===
 # ==============================================================================
@@ -2663,6 +2807,7 @@ def checklist_logs():
                                error=f"Could not load logs: {e}",
                                title='Checklist Log Matrix - Error')
 @bp.route('/usage_logs', methods=['GET'])
+
 def usage_logs():
     """Displays usage logs with filters."""
     equipment_id_filter = request.args.get('equipment_id', type=int) # Filter by specific equipment ID

@@ -4,19 +4,22 @@
 {% block title %}{{ title }} - {{ super() }}{% endblock %}
 
 {% block styles %}
-{{ super() }}
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+
+{# <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css"> #}
 <style>
+    /* --- General Layout & Header --- */
     .detail-header {
-        background-color: #e9ecef;
+        background-color: #f1f3f5;
         padding: 1rem 1.5rem;
         border-bottom: 1px solid #dee2e6;
         margin-bottom: 1.5rem;
         border-radius: 0.3rem 0.3rem 0 0;
     }
-    .detail-header h2 {
-        margin-bottom: 0.25rem;
-    }
+    .detail-header h2 { margin-bottom: 0.25rem; color: #343a40; }
+    .back-button { margin-bottom: 1rem; }
+    .action-buttons { gap: 0.5rem; }
+
+    /* --- Filter Section --- */
     .filter-section {
         margin-bottom: 1.5rem;
         padding: 1rem;
@@ -24,93 +27,128 @@
         border: 1px solid #dee2e6;
         border-radius: 0.3rem;
     }
-    .day-section {
-        margin-bottom: 2rem; /* Increased space between days */
-        padding-top: 1rem;
-        border-top: 1px solid #eee;
+
+    /* --- Table Styling --- */
+    .table-responsive-wrapper {
+        overflow-x: auto;
+        margin-bottom: 1rem;
+        border: 1px solid #dee2e6;
+        border-radius: 0.3rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
-     .day-section:first-of-type {
-        border-top: none; /* No top border for the first day */
-         padding-top: 0;
+    .item-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        background-color: #fff;
+        color: #212529;
     }
-    .day-header {
-        font-size: 1.4rem; /* Slightly larger day header */
-        font-weight: 500;
-        margin-bottom: 1.5rem;
-        color: #0056b3; /* Darker blue */
-        padding-bottom: 0.5rem;
-        border-bottom: 1px solid #dee2e6;
+    /* Table Header */
+    .item-table thead th {
+        background-color: #e9ecef;
+        padding: 0.8rem 1rem;
+        text-align: left;
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: #495057;
+        white-space: nowrap;
+        border-bottom: 2px solid #ced4da;
+        vertical-align: middle;
+    }
+    /* Table Body Cells */
+    .item-table tbody td {
+        padding: 0.9rem 1rem;
+        vertical-align: top; /* Align top consistently */
+        border-top: 1px solid #e9ecef;
+        font-size: 0.9rem;
+        line-height: 1.5;
+        /* Ensure word wrapping works correctly */
+        word-wrap: break-word;      /* Fallback */
+        overflow-wrap: break-word;  /* Standard */
+        word-break: break-word;   /* Allow breaking long words */
+        -webkit-hyphens: auto;
+        -moz-hyphens: auto;
+        hyphens: auto;
+    }
+    .item-table tbody tr:hover td {
+        background-color: #f8f9fa;
     }
 
-    /* Card Styling */
-    .plan-card {
-        /* Add h-100 if you want cards in the same row to have equal height */
-         height: 100%;
-         box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
-         transition: box-shadow 0.2s ease-in-out;
+    /* Date Header Row */
+    .item-table .date-header-row td {
+        background-color: #0056b3;
+        color: #fff;
+        font-weight: bold;
+        font-size: 1.1rem;
+        padding: 0.6rem 1rem;
+        border-top: 2px solid #004085;
+        border-bottom: 1px solid #004085;
     }
-     .plan-card:hover {
-        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.1);
-    }
+     .item-table tbody tr.date-header-row:hover td {
+         background-color: #0056b3;
+     }
 
-    .card-header {
+    /* Column Widths (Adjusted) */
+    .item-table .col-equip { width: 24%; } /* Slightly wider */
+    .item-table .col-desc { width: 30%; } /* Reduced width */
+    .item-table .col-status { width: 10%; min-width: 95px; }
+    .item-table .col-type { width: 10%; min-width: 95px; }
+    .item-table .col-details { width: 26%; min-width: 160px;} /* Wider */
+
+    /* Content Styling within Cells */
+    .equip-code { font-weight: 600; display: block; margin-bottom: 2px; color: #343a40;}
+    .equip-name { font-size: 0.85em; color: #6c757d; }
+
+    /* Badges - SOLID BACKGROUNDS for Readability */
+    .badge {
+        font-size: 0.8rem;
+        padding: 0.35em 0.65em;
+        vertical-align: middle;
         font-weight: 500;
-        font-size: 0.9rem;
-        padding: 0.5rem 0.75rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        background-color: #f8f9fa; /* Light grey header */
+        margin-right: 3px;
+        margin-bottom: 3px;
+        display: inline-block;
+        color: white !important; /* Ensure white text */
+        border: 1px solid rgba(0,0,0,0.1); /* Subtle border */
+        border-radius: 0.25rem;
     }
-     .card-header .equipment-code {
-        color: #343a40;
+    .badge i { vertical-align: baseline; }
+
+    /* Solid Badge Colors */
+    .status-planned { background-color: #0d6efd !important; } /* Bootstrap Blue */
+    .status-todo { background-color: #fd7e14 !important; } /* Bootstrap Orange */
+    .status-completed { background-color: #198754 !important; } /* Bootstrap Green */
+
+    .type-legal { background-color: #dc3545 !important; } /* Bootstrap Red */
+    .type-maint { background-color: #6c757d !important; } /* Bootstrap Secondary Grey */
+
+    .tag-estimate {
+        background-color: #ffc107 !important; /* Bootstrap Yellow */
+        color: #343a40 !important; /* Dark text for yellow */
+        border-color: rgba(0,0,0,0.15);
     }
-     .card-body {
-        padding: 0.75rem;
-        font-size: 0.9rem;
-    }
-    .card-subtitle {
-        font-size: 0.95rem;
-        font-weight: 500;
-        margin-bottom: 0.5rem;
-    }
-    .card-text small {
-        display: block;
-        margin-top: 0.3rem;
+    .tag-interval { font-size: 0.8em; color: #6c757d; display: block; margin-top: 4px; }
+
+    /* Details Column Content */
+    .details-content { font-size: 0.88rem; }
+    .details-content .job-link { font-weight: 600; color: #0d6efd; text-decoration: none; }
+    .details-content .job-link:hover { text-decoration: underline; }
+    .details-content span { display: block; color: #6c757d; margin-top: 3px; line-height: 1.4; }
+    .details-content i { margin-right: 4px; width: 1em; }
+
+    /* No Items Row */
+    .no-items-row td {
+        text-align: center;
+        font-style: italic;
         color: #6c757d;
+        padding: 1.5rem;
+        background-color: #f8f9fa;
+        border-top: 1px solid #dee2e6;
     }
-    .card-badges {
-        margin-top: 0.75rem;
-        margin-bottom: 0.5rem;
-        display: flex;
-        gap: 0.4rem;
-        flex-wrap: wrap;
-    }
-    .card-link-section {
-        margin-top: 0.75rem;
-        text-align: right;
-    }
+     .no-items-row:hover td { background-color: #f8f9fa; }
 
-    /* Status Specific Card Borders/Backgrounds (Subtle) */
-    .card-planned { border-left: 4px solid #0d6efd; /* Blue border */ }
-    .card-planned.card-estimated {
-        border-left-color: #ffc107; /* Yellow border for estimates */
-        background-color: #fffcf1; /* Very light yellow bg */
-    }
-    .card-completed { border-left: 4px solid #198754; /* Green border */ }
-
-    /* Badge Styling */
-    .badge.bg-status-planned { background-color: #0d6efd !important; }
-    .badge.bg-status-completed { background-color: #198754 !important; }
-    .badge.bg-legal { background-color: #dc3545 !important; }
-    .badge.bg-maintenance { background-color: #6c757d !important; }
-    .badge.bg-estimate { background-color: #ffc107 !important; color: #343a40 !important; }
-    .badge.bg-interval { background-color: #adb5bd !important; }
-
-
-    .no-items-alert { font-style: italic; color: #6c757d; margin-top: 0.5rem; }
-    .back-button { margin-bottom: 1rem; }
-    .action-buttons { gap: 0.5rem; }
+    /* General Alert Message */
+    .alert .alert-link { font-weight: bold; }
 
 </style>
 {% endblock %}
@@ -118,23 +156,24 @@
 {% block content %}
 <div class="container-fluid mt-4">
 
-    {# --- Back Button, Header, Print/PDF Buttons (Keep As Is) --- #}
+    {# --- Back Button --- #}
     <a href="{{ url_for('planned_maintenance.maintenance_plan_list_view') }}" class="btn btn-sm btn-outline-secondary back-button">
         <i class="bi bi-arrow-left"></i> Back to Plan List
     </a>
 
+    {# --- Header and Action Buttons --- #}
     <div class="detail-header d-flex justify-content-between align-items-center flex-wrap">
         <div>
-            <h2>{{ month_name }} - Plan Details</h2>
+            <h2 class="mb-0">{{ month_name }} - Plan Details</h2>
             <small class="text-muted">{{ generation_info }}</small>
         </div>
         <div class="d-flex action-buttons mt-2 mt-md-0">
             <a href="{{ url_for('planned_maintenance.print_maintenance_plan_detail', year=current_year, month=current_month, equipment_type=current_equipment_type_filter or '') }}" class="btn btn-sm btn-info" target="_blank" title="Open Printable View">
-                <i class="bi bi-printer-fill"></i> Print Plan
+                <i class="bi bi-printer-fill"></i> Print View
             </a>
             {% if WEASYPRINT_AVAILABLE %}
             <a href="{{ url_for('planned_maintenance.maintenance_plan_pdf', year=current_year, month=current_month) }}" class="btn btn-sm btn-danger" target="_blank" title="Download PDF (Original Calendar Layout)">
-                <i class="bi bi-file-earmark-pdf-fill"></i> PDF (Calendar)
+                <i class="bi bi-file-earmark-pdf-fill"></i> PDF Calendar
             </a>
             {% else %}
             <button class="btn btn-sm btn-secondary" disabled title="PDF Library (WeasyPrint) not installed">
@@ -144,13 +183,13 @@
         </div>
     </div>
 
-    {# --- Filter Section (Keep As Is) --- #}
+    {# --- Filter Section --- #}
     <div class="filter-section">
         <form method="GET" action="{{ url_for('planned_maintenance.maintenance_plan_detail_view') }}" class="row g-3 align-items-end">
              <input type="hidden" name="year" value="{{ current_year }}">
              <input type="hidden" name="month" value="{{ current_month }}">
              <div class="col-md-4">
-                 <label for="equipment_type" class="form-label">Filter by Equipment Type:</label>
+                 <label for="equipment_type" class="form-label mb-1">Filter by Equipment Type:</label>
                  <select name="equipment_type" id="equipment_type" class="form-select form-select-sm">
                      <option value="All" {% if not current_equipment_type_filter or current_equipment_type_filter == 'All' %}selected{% endif %}>-- All Types --</option>
                      {% for type_name in equipment_types | sort %}
@@ -158,13 +197,13 @@
                      {% endfor %}
                  </select>
              </div>
-             <div class="col-md-2">
+             <div class="col-md-auto">
                  <button type="submit" class="btn btn-primary btn-sm w-100">
                      <i class="bi bi-filter"></i> Filter
                  </button>
              </div>
              {% if current_equipment_type_filter and current_equipment_type_filter != 'All' %}
-             <div class="col-md-2">
+             <div class="col-md-auto">
                  <a href="{{ url_for('planned_maintenance.maintenance_plan_detail_view', year=current_year, month=current_month) }}" class="btn btn-outline-secondary btn-sm w-100">
                      Clear Filter
                  </a>
@@ -174,112 +213,129 @@
     </div>
 
 
-    {# --- Daily Plan Data --- #}
+    {# --- Daily Plan Data Table --- #}
     {% if daily_plan_data %}
-        {% for day_date, data in daily_plan_data.items() %}
-        <div class="day-section">
-            <h3 class="day-header"><i class="bi bi-calendar-date me-2"></i>{{ day_date.strftime('%A, %d %B %Y') }}</h3>
+     <div class="table-responsive-wrapper">
+        <table class="item-table">
+             <thead>
+                <tr>
+                    <th class="col-equip">Equipment</th>
+                    <th class="col-desc">Task / Job Description</th>
+                    <th class="col-status">Status</th>
+                    <th class="col-type">Type</th>
+                    <th class="col-details">Details / Job No.</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for day_date, data in daily_plan_data.items() %}
+                    {# Date Header Row #}
+                    <tr class="date-header-row">
+                        <td colspan="5">{{ day_date.strftime('%A, %d %B %Y') }}</td>
+                    </tr>
 
-            {# --- Card Grid Row --- #}
-            <div class="row g-3"> {# g-3 adds gutters between columns #}
+                    {# Check if there are any items for this day #}
+                    {% set day_has_items = data.planned or data.todo or data.completed %}
 
-                {# Planned Task Cards #}
-                {% if data.planned %}
+                    {# --- Planned Tasks --- #}
                     {% for item in data.planned | sort(attribute='equipment.code') %}
-                    <div class="col-md-6 col-lg-4"> {# Adjust columns: 2 on med, 3 on lg screens #}
-                        <div class="card plan-card card-planned {% if item.is_estimate %}card-estimated{% endif %}">
-                            <div class="card-header">
-                                <span class="equipment-code">
-                                    <i class="bi bi-tools text-secondary me-1"></i>
-                                    {{ item.equipment.code if item.equipment else 'N/A' }}
-                                </span>
-                                <span class="badge bg-status-planned rounded-pill">Planned</span>
-                            </div>
-                            <div class="card-body">
-                                <h6 class="card-subtitle mb-2 text-muted">{{ item.equipment.name if item.equipment else 'N/A' }}</h6>
-                                <p class="card-text">{{ item.description }}</p>
-                                <div class="card-badges">
-                                    {% if item.is_legal %}
-                                        <span class="badge bg-legal"><i class="bi bi-shield-fill-exclamation me-1"></i>Legal</span>
-                                    {% else %}
-                                        <span class="badge bg-maintenance">Maintenance</span>
-                                    {% endif %}
-                                    {% if item.is_estimate %}
-                                        <span class="badge bg-estimate"><i class="bi bi-clock-history me-1"></i>Est.</span>
-                                    {% endif %}
-                                     <span class="badge bg-interval">{{ item.entry.interval_type }}</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    <tr>
+                        {# Equipment Cell #}
+                        <td>
+                            <span class="equip-code">{{ item.equipment.code if item.equipment else 'N/A' }}</span>
+                            <span class="equip-name">{{ item.equipment.name if item.equipment else 'N/A' }}</span>
+                        </td>
+                        {# Description Cell (will wrap) #}
+                        <td>{{ item.description }}</td>
+                        {# Status Cell #}
+                        <td><span class="badge status-planned">Planned</span></td>
+                        {# Type Cell #}
+                        <td>
+                            {% if item.is_legal %}<span class="badge type-legal">Legal</span>
+                            {% else %}<span class="badge type-maint">Maint.</span>
+                            {% endif %}
+                        </td>
+                        {# Details Cell #}
+                        <td>
+                            {% if item.is_estimate %}<span class="badge tag-estimate">Estimate</span>{% endif %}
+                            {% if item.entry.interval_type %}<span class="tag-interval">{{ item.entry.interval_type|capitalize }}</span>{% endif %}
+                        </td>
+                    </tr>
                     {% endfor %}
-                {% endif %}
 
-                {# Completed Job Cards #}
-                {% if data.completed %}
+                    {# --- "To Do" Job Cards --- #}
+                    {% for item in data.todo | sort(attribute='equipment.code') %}
+                    <tr>
+                        <td>
+                            <span class="equip-code">{{ item.equipment.code if item.equipment else 'N/A' }}</span>
+                            <span class="equip-name">{{ item.equipment.name if item.equipment else 'N/A' }}</span>
+                        </td>
+                        <td>{{ item.description }}</td>
+                        <td><span class="badge status-todo">To Do</span></td>
+                        <td>
+                            {% if item.is_legal %}<span class="badge type-legal">Legal</span>
+                            {% else %}<span class="badge type-maint">Maint.</span>
+                            {% endif %}
+                        </td>
+                        <td class="details-content">
+                           <a href="{{ url_for('planned_maintenance.job_card_detail', id=item.job_card.id) }}" class="job-link" title="View Job Card {{ item.job_card.job_number }}">{{ item.job_card.job_number }}</a>
+                           <span><i class="bi bi-calendar-check"></i> Due: {{ item.job_card.due_date.strftime('%Y-%m-%d') if item.job_card.due_date else 'N/A' }}</span>
+                           {% if item.job_card.technician %}
+                            <span><i class="bi bi-person"></i> Tech: {{ item.job_card.technician }}</span>
+                           {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+
+                    {# --- Completed Jobs --- #}
                     {% for item in data.completed | sort(attribute='equipment.code') %}
-                     <div class="col-md-6 col-lg-4">
-                        <div class="card plan-card card-completed">
-                             <div class="card-header">
-                                 <span class="equipment-code">
-                                     <i class="bi bi-truck text-success me-1"></i>
-                                     {{ item.equipment.code if item.equipment else 'N/A' }}
-                                 </span>
-                                 <span class="badge bg-status-completed rounded-pill">Completed</span>
-                             </div>
-                             <div class="card-body">
-                                 <h6 class="card-subtitle mb-2 text-muted">{{ item.equipment.name if item.equipment else 'N/A' }}</h6>
-                                 <p class="card-text">{{ item.description }}</p>
-                                 <div class="card-badges">
-                                     {% if item.is_legal %}
-                                         <span class="badge bg-legal"><i class="bi bi-shield-fill-exclamation me-1"></i>Legal</span>
-                                     {% else %}
-                                        <span class="badge bg-maintenance">Maintenance</span>
-                                     {% endif %}
-                                 </div>
-                                 <p class="card-text">
-                                     <small>
-                                         Completed: {{ item.job_card.end_datetime.strftime('%H:%M') if item.job_card.end_datetime }}<br>
-                                         Technician: {{ item.job_card.technician or 'N/A' }}
-                                    </small>
-                                 </p>
-                                 <div class="card-link-section">
-                                     <a href="{{ url_for('planned_maintenance.job_card_detail', id=item.job_card.id) }}" class="btn btn-outline-success btn-sm" title="View Job Card {{ item.job_card.job_number }}">
-                                         <i class="bi bi-clipboard-check"></i> {{ item.job_card.job_number }}
-                                     </a>
-                                 </div>
-                             </div>
-                        </div>
-                    </div>
+                    <tr>
+                        <td>
+                            <span class="equip-code">{{ item.equipment.code if item.equipment else 'N/A' }}</span>
+                            <span class="equip-name">{{ item.equipment.name if item.equipment else 'N/A' }}</span>
+                        </td>
+                        <td>{{ item.description }}</td>
+                        <td><span class="badge status-completed">Completed</span></td>
+                        <td>
+                            {% if item.is_legal %}<span class="badge type-legal">Legal</span>
+                            {% else %}<span class="badge type-maint">Maint.</span>
+                            {% endif %}
+                        </td>
+                        <td class="details-content">
+                            <a href="{{ url_for('planned_maintenance.job_card_detail', id=item.job_card.id) }}" class="job-link" title="View Job Card {{ item.job_card.job_number }}">{{ item.job_card.job_number }}</a>
+                            <span><i class="bi bi-check-circle-fill"></i> Done: {{ item.job_card.end_datetime.strftime('%H:%M') if item.job_card.end_datetime }}</span>
+                            {% if item.job_card.technician %}
+                             <span><i class="bi bi-person"></i> Tech: {{ item.job_card.technician }}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
                     {% endfor %}
-                {% endif %}
 
-                 {% if not data.planned and not data.completed %}
-                    <div class="col-12">
-                        <p class="no-items-alert text-center">No items scheduled or completed for this day.</p>
-                    </div>
-                 {% endif %}
+                     {# --- Handle Empty Day --- #}
+                     {% if not day_has_items %}
+                          <tr class="no-items-row"><td colspan="5">No items scheduled, due, or completed for this day.</td></tr>
+                     {% endif %}
 
-            </div> {# End row g-3 #}
-        </div> {# End day-section #}
-        {% endfor %} {# End daily_plan_data loop #}
+                {% endfor %} {# End loop through days #}
+            </tbody>
+        </table>
+    </div> {# End table-responsive-wrapper #}
 
+    {# --- Handle Case Where Plan Exists but is Empty (e.g., due to filter) or Error --- #}
     {% elif error %}
-         {# --- Error Message (Keep As Is) --- #}
-         <div class="alert alert-danger">
+         <div class="alert alert-danger mt-3">
             <strong>Error:</strong> {{ error }}
         </div>
     {% else %}
-         {# --- No Data Message (Keep As Is) --- #}
+         {# Plan data exists but is empty (or filtered to empty) #}
          <div class="alert alert-info mt-3">
              {% if current_equipment_type_filter and current_equipment_type_filter != 'All' %}
-                 No planned tasks or completed job cards found for {{ month_name }} matching the filter: <strong>{{ current_equipment_type_filter }}</strong>.
+                 No planned tasks, due job cards, or completed job cards found for {{ month_name }} matching the filter: <strong>{{ current_equipment_type_filter }}</strong>.
                  <a href="{{ url_for('planned_maintenance.maintenance_plan_detail_view', year=current_year, month=current_month) }}" class="alert-link">Clear filter</a>?
              {% else %}
-                 No planned tasks or completed job cards found for {{ month_name }}. Check if the plan was generated or if jobs were completed in this period.
+                 No planned tasks, due job cards, or completed job cards found for {{ month_name }}. Check if the plan was generated or if any relevant job cards exist for this period.
              {% endif %}
         </div>
     {% endif %} {# End if daily_plan_data #}
 
-</div> {# End container #}
+</div> {# End container-fluid #}
 {% endblock %}

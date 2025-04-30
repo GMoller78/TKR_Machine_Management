@@ -4,120 +4,161 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ title }}</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
+    {# Minimal Bootstrap for basic grid/table structure if needed, but prioritize native print styles #}
+    {# <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css"> #}
     <style>
+        /* General Print Styles */
         body {
-            font-family: sans-serif;
-            padding: 20px;
-            font-size: 10pt; /* Smaller font for printing */
+            font-family: Arial, sans-serif; /* Common sans-serif font */
+            margin: 15mm; /* Standard margins */
+            font-size: 10pt;
+            line-height: 1.3;
+            color: #333;
         }
+        h1, h2, h3, h4 {
+            margin-top: 0;
+            margin-bottom: 0.5em;
+            color: #000;
+        }
+
+        /* Header Section */
         .print-header {
             text-align: center;
-            margin-bottom: 25px;
-            border-bottom: 1px solid #ccc;
-            padding-bottom: 15px;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #999;
+            padding-bottom: 10px;
         }
         .print-header h1 {
-            margin-bottom: 5px;
             font-size: 16pt;
+            margin-bottom: 2px;
         }
         .print-header p {
-            margin-bottom: 0;
             font-size: 10pt;
             color: #555;
+            margin: 0;
         }
-        .day-section {
-            margin-bottom: 15px; /* Space between days */
-            padding-top: 10px;
-            border-top: 1px dotted #eee; /* Light separator */
-            page-break-inside: avoid; /* Try to keep day content together */
+        .print-header strong {
+            color: #000;
         }
-         .day-section:first-of-type {
-            border-top: none; /* No top border for the first day */
-        }
-        .day-header {
-            font-size: 12pt;
-            font-weight: bold;
-            margin-bottom: 8px;
-        }
+
+        /* Table Styles */
         .item-table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 10px;
+            margin-top: 15px;
+            margin-bottom: 15px;
+            page-break-inside: auto; /* Allow table rows to break across pages if necessary */
         }
         .item-table th, .item-table td {
-            border: 1px solid #ddd;
-            padding: 4px 6px;
+            border: 1px solid #ccc;
+            padding: 5px 7px;
             text-align: left;
-            vertical-align: top; /* Align content top */
+            vertical-align: top;
+            font-size: 9pt; /* Smaller font for table content */
+            word-wrap: break-word; /* Allow long words to break */
         }
-        .item-table th {
-            background-color: #f2f2f2;
-            font-size: 9pt;
+        .item-table thead th {
+            background-color: #e9ecef; /* Light grey header */
+            font-weight: bold;
             white-space: nowrap;
         }
-        .item-table td {
-             font-size: 9pt;
+        .item-table tbody tr {
+            page-break-inside: avoid; /* Try to keep rows on the same page */
         }
+        /* Date Separator Row */
+        .item-table .date-header-row td {
+            background-color: #f8f9fa; /* Slightly lighter grey for date */
+            font-weight: bold;
+            font-size: 10pt;
+            color: #333;
+            border-top: 2px solid #ccc; /* Thicker top border for date */
+            border-bottom: 1px solid #ccc;
+        }
+        /* Column Widths (Approximate) */
         .item-table .col-equip { width: 25%; }
-        .item-table .col-desc { width: 40%; }
-        .item-table .col-status { width: 15%; white-space: nowrap;}
-        .item-table .col-type { width: 15%; white-space: nowrap;}
-        .item-table .col-details { width: 5%; white-space: nowrap; }
+        .item-table .col-desc { width: 35%; }
+        .item-table .col-status { width: 10%; white-space: nowrap; }
+        .item-table .col-type { width: 10%; white-space: nowrap; }
+        .item-table .col-details { width: 20%; } /* Slightly more space for job# + tech */
 
-        .status-planned { color: #0d6efd; font-weight: bold;} /* Blue */
-        .status-completed { color: #198754; font-weight: bold;} /* Green */
+        /* Status & Type Indicators */
+        .status-planned { color: #007bff; font-weight: bold; } /* Blue */
+        .status-todo { color: #fd7e14; font-weight: bold; } /* Orange */
+        .status-completed { color: #28a745; font-weight: bold; } /* Green */
+
         .type-legal { color: #dc3545; } /* Red */
         .type-maint { color: #6c757d; } /* Grey */
-        .estimate-tag { font-style: italic; color: #ffc107; } /* Yellow/Orange */
 
+        .tag-estimate { font-style: italic; color: #ffc107; margin-left: 5px; } /* Yellow/Orange */
+        .tag-interval { color: #6c757d; font-size: 8pt; display: block; }
+        .tag-jobno { color: #0056b3; }
+        .tag-tech { color: #555; font-size: 8pt; display: block; }
+
+        /* No Items Message */
+        .no-items {
+            font-style: italic;
+            color: #6c757d;
+            padding: 10px;
+            text-align: center;
+            font-size: 10pt;
+        }
+
+        /* Sign-off Section */
         .sign-off-section {
-            margin-top: 40px;
-            padding-top: 20px;
+            margin-top: 30px;
+            padding-top: 15px;
             border-top: 1px solid #000;
-            page-break-before: auto; /* Allow page break before sign-off if needed */
-             page-break-inside: avoid; /* Keep sign-off block together */
+            page-break-before: auto; /* Allow break before if needed */
+            page-break-inside: avoid; /* Keep the whole section together */
         }
         .sign-off-section h4 {
             text-align: center;
-            margin-bottom: 25px;
+            margin-bottom: 20px;
             font-size: 12pt;
+            font-weight: bold;
         }
         .sign-off-item {
-            margin-bottom: 20px;
-            display: flex;
-            align-items: flex-end; /* Align label and line */
+            margin-bottom: 25px; /* Space between signature lines */
+            display: table; /* Use table layout for alignment */
+            width: 80%; /* Control overall width */
+            margin-left: auto;
+            margin-right: auto;
         }
-         .sign-off-item p {
-            margin: 0 10px 0 0; /* Space between label and line */
+        .sign-off-item span {
+            display: table-cell;
+            vertical-align: bottom;
+            padding-bottom: 2px;
+            white-space: nowrap;
+            padding-right: 10px; /* Space between label and line */
             font-size: 10pt;
-            min-width: 60px; /* Ensure labels align nicely */
+            font-weight: bold;
         }
         .signature-line {
+            display: table-cell;
+            vertical-align: bottom;
             border-bottom: 1px solid #555;
-            flex-grow: 1; /* Line takes remaining space */
-            min-height: 1.2em; /* Ensure space for signature */
-        }
-        .no-items {
-             font-style: italic; color: #6c757d; margin-top: 5px; font-size: 9pt;
+            width: 100%; /* Take remaining width */
         }
 
+        /* Print-Specific Overrides */
         @media print {
             body {
-                padding: 5mm; /* Reduce padding for print */
-                font-size: 9pt; /* Ensure small font for print */
+                margin: 10mm; /* Slightly tighter margins for print */
+                font-size: 9pt; /* Ensure consistent small font */
             }
-            .btn { display: none; } /* Hide buttons */
-            a { text-decoration: none; color: inherit; } /* Make links look like text */
             .item-table th, .item-table td {
-                 font-size: 8pt; /* Even smaller for table in print */
-                 padding: 3px 4px;
+                 font-size: 8pt; /* Even smaller for table */
+                 padding: 3px 5px;
             }
-            .day-header { font-size: 11pt; }
+            .item-table .date-header-row td {
+                font-size: 9pt;
+            }
             .print-header h1 { font-size: 14pt; }
-             .print-header p { font-size: 9pt; }
-             .sign-off-section h4 { font-size: 11pt; }
-             .sign-off-item p { font-size: 9pt; }
+            .print-header p { font-size: 9pt; }
+            .sign-off-section h4 { font-size: 11pt; }
+            .sign-off-item span { font-size: 9pt; }
+            a { text-decoration: none; color: inherit; } /* Avoid blue links in print */
+            .tag-jobno a { color: inherit; } /* Ensure job no link is black */
         }
     </style>
 </head>
@@ -126,6 +167,7 @@
     <div class="print-header">
         <h1>Maintenance Plan</h1>
         <p>{{ month_name }}</p>
+        {# Display filter if one was applied #}
         {% if equipment_type_filter and equipment_type_filter != 'All' %}
         <p>Filtered by Equipment Type: <strong>{{ equipment_type_filter }}</strong></p>
         {% endif %}
@@ -139,19 +181,17 @@
                     <th class="col-desc">Task / Job Description</th>
                     <th class="col-status">Status</th>
                     <th class="col-type">Type</th>
-                    <th class="col-details">Details</th>
+                    <th class="col-details">Details / Job No.</th>
                 </tr>
             </thead>
             <tbody>
                 {% for day_date, data in daily_plan_data.items() %}
-                    {# Optional: Add a row for the date header if desired #}
-                    <tr>
-                        <td colspan="5" style="background-color: #f8f9fa; font-weight: bold; padding: 5px;">
-                           {{ day_date.strftime('%A, %d %B %Y') }}
-                        </td>
+                    {# Date Header Row #}
+                    <tr class="date-header-row">
+                        <td colspan="5">{{ day_date.strftime('%A, %d %B %Y') }}</td>
                     </tr>
 
-                    {# Planned Tasks #}
+                    {# --- Planned Tasks --- #}
                     {% if data.planned %}
                         {% for item in data.planned | sort(attribute='equipment.code') %}
                         <tr>
@@ -160,18 +200,43 @@
                             <td><span class="status-planned">Planned</span></td>
                             <td>
                                 {% if item.is_legal %}<span class="type-legal">Legal</span>
-                                {% else %}<span class="type-maint">Maintenance</span>
+                                {% else %}<span class="type-maint">Maint.</span>
                                 {% endif %}
                             </td>
                             <td>
-                                {% if item.is_estimate %}<span class="estimate-tag">Est.</span>{% endif %}
-                                {{ item.entry.interval_type }}
+                                {% if item.is_estimate %}<span class="tag-estimate">Estimate</span>{% endif %}
+                                {% if item.entry.interval_type %}<span class="tag-interval">{{ item.entry.interval_type|capitalize }}</span>{% endif %}
                             </td>
                         </tr>
                         {% endfor %}
-                    {% endif %}
+                    {% endif %} {# End Planned Tasks #}
 
-                    {# Completed Jobs #}
+                    {# --- "To Do" Job Cards --- #}
+                    {% if data.todo %}
+                        {% for item in data.todo | sort(attribute='equipment.code') %}
+                        <tr>
+                            <td>{{ item.equipment.code if item.equipment else 'N/A' }} - {{ item.equipment.name if item.equipment else 'N/A' }}</td>
+                            <td>{{ item.description }}</td>
+                            <td><span class="status-todo">To Do</span></td>
+                            <td>
+                                {% if item.is_legal %}<span class="type-legal">Legal</span>
+                                {% else %}<span class="type-maint">Maint.</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                               <span class="tag-jobno">
+                                   {# Link is less useful in print, but keep job number #}
+                                   {{ item.job_card.job_number }}
+                               </span>
+                               {% if item.job_card.technician %}
+                                <span class="tag-tech">Tech: {{ item.job_card.technician }}</span>
+                               {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    {% endif %} {# End "To Do" Job Cards #}
+
+                    {# --- Completed Jobs --- #}
                     {% if data.completed %}
                         {% for item in data.completed | sort(attribute='equipment.code') %}
                         <tr>
@@ -180,48 +245,56 @@
                             <td><span class="status-completed">Completed</span></td>
                             <td>
                                 {% if item.is_legal %}<span class="type-legal">Legal</span>
-                                {% else %}<span class="type-maint">Maintenance</span>
+                                {% else %}<span class="type-maint">Maint.</span>
                                 {% endif %}
                             </td>
                             <td>
-                                {{ item.job_card.job_number }}<br>
-                                ({{ item.job_card.end_datetime.strftime('%H:%M') if item.job_card.end_datetime }})
+                                <span class="tag-jobno">
+                                    {{ item.job_card.job_number }}
+                                </span>
+                                <span class="tag-tech">
+                                    ({{ item.job_card.end_datetime.strftime('%H:%M') if item.job_card.end_datetime }})
+                                    {% if item.job_card.technician %} Tech: {{ item.job_card.technician }} {% endif %}
+                                </span>
                             </td>
                         </tr>
                         {% endfor %}
-                    {% endif %}
+                    {% endif %} {# End Completed Jobs #}
 
-                     {% if not data.planned and not data.completed %}
-                         {# This case should technically not happen if the day_date key exists #}
-                          <tr><td colspan="5" class="no-items">No items for this day.</td></tr>
+                    {# --- Handle Empty Day (only if the day key exists but all lists are empty) --- #}
+                     {% if not data.planned and not data.completed and not data.todo %}
+                         {# This row might not appear often if days are only added when they have items #}
+                         {# Included for completeness if you generate rows for all days in the month #}
+                          <tr><td colspan="5" class="no-items" style="text-align: center; color: #aaa;">-- No items for this day --</td></tr>
                      {% endif %}
 
-                {% endfor %}
+                {% endfor %} {# End loop through days #}
             </tbody>
         </table>
 
     {% else %}
-        <p class="no-items">No planned or completed items found for {{ month_name }}
+        {# --- Handle case where no data exists for the entire month/filter --- #}
+        <p class="no-items">No planned, due, or completed items found for {{ month_name }}
             {% if equipment_type_filter and equipment_type_filter != 'All' %}
              matching filter: <strong>{{ equipment_type_filter }}</strong>
             {% endif %}.
         </p>
-    {% endif %}
+    {% endif %} {# End if daily_plan_data #}
 
 
     {# --- Sign-off Section --- #}
     <div class="sign-off-section">
         <h4>Plan Sign-off</h4>
         <div class="sign-off-item">
-            <p>Approved By:</p>
+            <span>Approved By:</span>
             <div class="signature-line"></div>
         </div>
          <div class="sign-off-item">
-            <p>Name:</p>
+            <span>Name:</span>
             <div class="signature-line"></div>
         </div>
          <div class="sign-off-item">
-            <p>Date:</p>
+            <span>Date:</span>
             <div class="signature-line"></div>
         </div>
     </div>
