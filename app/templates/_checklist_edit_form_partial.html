@@ -1,0 +1,49 @@
+{# Renders only the form fields for checklist editing, loaded via AJAX #}
+<form id="checklistEditForm" action="{{ url_for('planned_maintenance.edit_checklist_log', log_id=log_id) }}" method="POST">
+    {{ form.hidden_tag() }} {# Important for CSRF token #}
+
+    <div class="mb-3">
+        {{ form.check_date.label(class="form-label") }}
+        {{ form.check_date(class="form-control form-control-sm") }}
+        {% if form.check_date.errors %}
+            <div class="invalid-feedback d-block">
+                {{ form.check_date.errors|join(', ') }}
+            </div>
+        {% endif %}
+        <small class="form-text text-muted">Date and Time the check was performed (UTC).</small>
+    </div>
+
+    <div class="mb-3">
+        {{ form.status.label(class="form-label") }}
+        {{ form.status(class="form-select form-select-sm") }}
+         {% if form.status.errors %}
+            <div class="invalid-feedback d-block">
+                {{ form.status.errors|join(', ') }}
+            </div>
+        {% endif %}
+    </div>
+
+     <div class="mb-3">
+        {{ form.operator.label(class="form-label") }}
+        {{ form.operator(class="form-control form-control-sm", placeholder="Operator name") }}
+         {% if form.operator.errors %}
+            <div class="invalid-feedback d-block">
+                {{ form.operator.errors|join(', ') }}
+            </div>
+        {% endif %}
+    </div>
+
+    <div class="mb-3">
+        {{ form.issues.label(class="form-label") }}
+        {{ form.issues(class="form-control form-control-sm", rows=3, placeholder="Any issues or comments") }}
+         {% if form.issues.errors %}
+            <div class="invalid-feedback d-block">
+                {{ form.issues.errors|join(', ') }}
+            </div>
+        {% endif %}
+    </div>
+
+    <div class="d-grid">
+        {{ form.submit(class="btn btn-primary btn-sm") }}
+    </div>
+</form>

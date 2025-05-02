@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="en">
   <head>
@@ -6,10 +7,12 @@
     <title>{% block title %}TKR Planned Maintenance{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    {# Optional: Font Awesome for pencil icon in modals #}
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <!-- Optional: Add custom CSS link here -->
     {% block styles %}
-    
-    {% endblock styles %}    
+
+    {% endblock styles %}
   </head>
   <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
@@ -76,14 +79,176 @@
       {% endblock %}
     </div> {# End container-fluid #}
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    {# -------- Generic Log Edit Modal -------- #}
+    <div class="modal fade" id="editLogModal" tabindex="-1" aria-labelledby="editLogModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-lg"> {# Use modal-lg for more space #}
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="editLogModalLabel">Edit Logs</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body" id="editLogModalBody">
+            {# Content will be loaded here via JavaScript #}
+            Loading...
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            {# Optional: Add a save button if form submission is handled via JS later #}
+          </div>
+        </div>
+      </div>
+    </div>
+    {# -------- End Generic Log Edit Modal -------- #}
 
-    {# -------- ADDED THIS BLOCK -------- #}
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    {# Include jQuery if needed by other scripts, Bootstrap 5 doesn't require it #}
+    {# <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script> #}
+
+    {# -------- Scripts Block -------- #}
     {% block scripts %}
-        {# Page-specific scripts will be inserted here by child templates #}
+        {# Page-specific scripts will be inserted here by child templates using super() #}
+
+        {# Script for Tooltips and Edit Modal #}
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                // Initialize tooltips (needed for checklist status badges)
+                var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+                var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+                    return new bootstrap.Tooltip(tooltipTriggerEl);
+                });
+
+                const editLogModal = document.getElementById('editLogModal');
+                if (editLogModal) { // Check if modal exists on the page
+                    const modalBody = document.getElementById('editLogModalBody');
+                    const modalTitle = document.getElementById('editLogModalLabel');
+                    // Ensure Bootstrap Modal is initialized correctly
+                    const modalInstance = bootstrap.Modal.getOrCreateInstance(editLogModal);
+
+
+                    // --- Listener for Edit Icon Clicks ---
+                    // Use event delegation on a parent container if icons are added dynamically
+                    // For now, assuming they exist on load
+                    document.body.addEventListener('click', function(event) {
+                        const trigger = event.target.closest('.edit-log-trigger'); // Find closest trigger ancestor
+                        if (!trigger) return; // Exit if click wasn't on or inside a trigger
+
+                        event.preventDefault(); // Prevent default link behavior
+
+                        const logType = trigger.dataset.logType;
+                        const equipmentId = trigger.dataset.equipmentId;
+                        const equipmentCode = trigger.dataset.equipmentCode;
+                        const logDate = trigger.dataset.logDate;
+
+                        // Update modal title immediately
+                        modalTitle.textContent = `Logs for ${equipmentCode} on ${logDate}`;
+                        modalBody.innerHTML = '<div class="text-center p-3"><div class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading...</span></div> Fetching logs...</div>';
+                        modalInstance.show(); // Show modal explicitly
+
+                        // --- Fetch logs for the cell ---
+                        fetch(`/planned-maintenance/logs/get_for_cell?log_type=${logType}&equipment_id=${equipmentId}&log_date=${logDate}`)
+                            .then(response => {
+                                if (!response.ok) {
+                                    // Try to get error message from response body
+                                    return response.text().then(text => {
+                                        throw new Error(`HTTP error! status: ${response.status}, message: ${text}`);
+                                    });
+                                }
+                                return response.json();
+                            })
+                            .then(data => {
+                                if (data.error) {
+                                     modalBody.innerHTML = `<div class="alert alert-danger m-3">Error: ${data.error}</div>`;
+                                } else if (data.logs && data.logs.length > 0) {
+                                    // Build the list of logs
+                                    let listHtml = `<ul class="list-group list-group-flush" id="logListInModal">`;
+                                    data.logs.forEach(log => {
+                                        listHtml += `<li class="list-group-item d-flex justify-content-between align-items-center">`;
+                                        if (logType === 'checklist') {
+                                            listHtml += `<div>
+                                                           <small class="text-muted me-2">${log.timestamp}</small>
+                                                           <strong>${log.status}</strong> by ${escapeHtml(log.operator)}
+                                                           ${log.issues ? '<div class="small text-muted fst-italic mt-1">Notes: ' + escapeHtml(log.issues) + '</div>' : ''}
+                                                         </div>`;
+                                        } else if (logType === 'usage') {
+                                             listHtml += `<div>
+                                                           <small class="text-muted me-2">${log.timestamp}</small>
+                                                           Usage: <strong>${log.value}</strong>
+                                                         </div>`;
+                                        }
+                                        // Added log.id to the edit button data for context if needed later
+                                        listHtml += `<button class="btn btn-outline-primary btn-sm edit-log-item-btn" data-form-url="${log.edit_url}" data-log-id="${log.id}">Edit</button>`;
+                                        listHtml += `</li>`;
+                                    });
+                                    listHtml += `</ul>`;
+                                    modalBody.innerHTML = listHtml;
+                                } else {
+                                    modalBody.innerHTML = '<p class="text-muted p-3 text-center">No logs found for this day.</p>';
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error fetching logs:', error);
+                                modalBody.innerHTML = `<div class="alert alert-danger m-3">Could not fetch log details. ${error.message || 'Check network or server.'}</div>`;
+                            });
+                    }); // End edit-log-trigger listener
+
+                    // --- Listener for Edit Button Clicks *Inside* the Modal ---
+                    editLogModal.addEventListener('click', function(event) {
+                        if (event.target.classList.contains('edit-log-item-btn')) {
+                            event.preventDefault();
+                            const formUrl = event.target.dataset.formUrl;
+                            const logId = event.target.dataset.logId;
+
+                            modalBody.innerHTML = '<div class="text-center p-3"><div class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading...</span></div> Loading edit form...</div>';
+                            modalTitle.textContent = `Edit Log Entry (ID: ${logId})`; // Update title for editing
+
+                             // --- Fetch the edit form content ---
+                             fetch(formUrl)
+                                .then(response => {
+                                     if (!response.ok) {
+                                         return response.text().then(text => {
+                                            throw new Error(`HTTP error! status: ${response.status}, message: ${text}`);
+                                        });
+                                    }
+                                    return response.text(); // Get HTML content
+                                })
+                                .then(html => {
+                                    modalBody.innerHTML = html; // Load the form HTML into the modal body
+                                    // Focus first input?
+                                    const firstInput = modalBody.querySelector('input, select, textarea');
+                                    if (firstInput) {
+                                        firstInput.focus();
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('Error fetching edit form:', error);
+                                    modalBody.innerHTML = `<div class="alert alert-danger m-3">Could not load the edit form. ${error.message || 'Check network or server.'}</div>`;
+                                });
+                        }
+                    }); // End modal click listener
+
+                     // Reset modal content when hidden
+                    editLogModal.addEventListener('hidden.bs.modal', function (event) {
+                      modalBody.innerHTML = 'Loading...'; // Reset for next time
+                      modalTitle.textContent = 'Edit Logs';
+                    });
+
+                } // End if(editLogModal)
+
+                // Helper function to escape HTML
+                function escapeHtml(unsafe) {
+                    if (typeof unsafe !== 'string') return unsafe; // Return non-strings as is
+                    return unsafe
+                         .replace(/&/g, "&") // Must be first
+                         .replace(/</g, "<")
+                         .replace(/>/g, ">")
+                         .replace(/"/g, "&quot;") // Corrected entity
+                         .replace(/'/g, "'"); // Corrected entity (or ')
+                }
+
+            }); // End DOMContentLoaded
+        </script>
     {% endblock scripts %}
     {# --------------------------------- #}
 
-    <!-- Optional: Add other custom JS links here -->
   </body>
 </html>

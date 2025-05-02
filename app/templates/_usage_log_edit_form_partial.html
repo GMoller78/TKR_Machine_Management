@@ -1,0 +1,29 @@
+{# Renders only the form fields for usage log editing, loaded via AJAX #}
+<form id="usageLogEditForm" action="{{ url_for('planned_maintenance.edit_usage_log', log_id=log_id) }}" method="POST">
+    {{ form.hidden_tag() }} {# CSRF token #}
+
+    <div class="mb-3">
+        {{ form.log_date.label(class="form-label") }}
+        {{ form.log_date(class="form-control form-control-sm") }}
+         {% if form.log_date.errors %}
+            <div class="invalid-feedback d-block">
+                {{ form.log_date.errors|join(', ') }}
+            </div>
+        {% endif %}
+         <small class="form-text text-muted">Date and Time the usage was logged (UTC).</small>
+    </div>
+
+    <div class="mb-3">
+        {{ form.usage_value.label(class="form-label") }}
+        {{ form.usage_value(class="form-control form-control-sm", type="number", step="any") }}
+         {% if form.usage_value.errors %}
+            <div class="invalid-feedback d-block">
+                {{ form.usage_value.errors|join(', ') }}
+            </div>
+        {% endif %}
+    </div>
+
+     <div class="d-grid">
+        {{ form.submit(class="btn btn-primary btn-sm") }}
+    </div>
+</form>
