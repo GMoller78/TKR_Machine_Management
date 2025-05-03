@@ -8,10 +8,8 @@
     <div class="row mb-3">
         <div class="col-12">
              <a href="{{ url_for('planned_maintenance.dashboard') }}" class="btn btn-sm btn-outline-secondary">Back to Dashboard</a>
-             <small class="text-muted ms-3">Showing total usage logged per day for the last 10 days.</small>
-             {# Add Legend/Explanation ? #}
-             <span class="badge bg-light text-dark border ms-3">#: Count</span>
-             <span class="badge bg-info text-dark ms-1">Total: Value</span>
+             <small class="text-muted ms-3">Showing latest check status & count per day for the last 10 days.</small>
+              <span class="badge bg-light text-dark border ms-3">#: Count</span>
         </div>
     </div>
 
@@ -23,13 +21,11 @@
 
     {% if all_equipment and dates_in_range %}
         <div class="table-responsive">
-            {# Adjusted min-width like checklist matrix #}
             <table class="table table-bordered table-hover table-sm" style="table-layout: fixed; min-width: 1200px;">
                 <thead class="table-light">
                     <tr>
                         <th style="width: 15%; vertical-align: middle;" class="text-center">Equipment Code</th>
                         {% for day_date in dates_in_range %}
-                            {# Adjusted width like checklist matrix #}
                             <th class="text-center align-middle small" style="width: 8.5%;">
                                 {{ day_date.strftime('%a') }}
                                 <div class="text-muted" style="font-size: 0.9em;">{{ day_date.strftime('%d') }}</div>
@@ -43,51 +39,60 @@
                             <td class="fw-bold align-middle">
                                 {{ eq.code }}
                                 <div class="text-muted small">{{ eq.name }}</div>
-                                <div class="text-muted small fst-italic">{{ eq.type }}</div> {# Added Type #}
+                                <div class="text-muted small fst-italic">{{ eq.type }}</div>
                             </td>
 
                             {% for day_date in dates_in_range %}
-                                {% set log_data = processed_data.get(eq.id, {}).get(day_date) %}
-                                <td class="text-center align-middle position-relative"> {# Add position-relative for icon #}
-                                    {% if log_data and log_data.count > 0 %}
-                                        {# Display Count #}
-                                        <span class="badge bg-light text-dark border" style="font-size: 0.8em;">
-                                            #: {{ log_data.count }}
+                                {# Get data for this specific equipment and date #}
+                                {% set cell_data = processed_data.get(eq.id, {}).get(day_date) %}
+
+                                <td class="text-center align-middle position-relative">
+                                    {# Check if there is data for this cell #}
+                                    {% if cell_data and cell_data.count > 0 %}
+
+                                        {# --- Display Usage Data --- #}
+                                        {% set tooltip_title = 'Total: ' ~ ('%.1f'|format(cell_data.total)) ~ '\nCount: ' ~ cell_data.count %}
+
+                                        {# Display Total Usage Value #}
+                                        <span
+                                            class="badge bg-primary" {# Use a neutral color like primary or info #}
+                                            data-bs-toggle="tooltip"
+                                            data-bs-placement="top"
+                                            data-bs-html="true"
+                                            title="{{ tooltip_title }}"
+                                        >
+                                            {{ '%.1f'|format(cell_data.total) }} {# Format total usage value #}
                                         </span>
 
-                                        {# Display Total Usage #}
-                                        <span class="badge bg-info text-dark ms-1" style="font-size: 0.8em;">
-                                            Total: {{ "%.1f"|format(log_data.total) }} {# Format to 1 decimal #}
+                                         {# Display Count Badge (Optional) #}
+                                        <span class="badge bg-light text-dark border ms-1" style="font-size: 0.8em;">
+                                            {{ cell_data.count }}
                                         </span>
 
-                                        {# Edit Icon Trigger #}
+                                        {# --- Edit Trigger Link - Corrected for Usage --- #}
                                         <a href="#" class="edit-log-trigger position-absolute top-0 end-0 p-1 text-muted"
-                                           data-bs-toggle="modal"
-                                           data-bs-target="#editLogModal"
-                                           data-log-type="usage"
+                                           data-log-type="usage"   {# *** CORRECTED: Set log type to usage *** #}
                                            data-equipment-id="{{ eq.id }}"
-                                           data-equipment-code="{{ eq.code }}" {# Pass code for modal title #}
+                                           data-equipment-code="{{ eq.code }}"
                                            data-log-date="{{ day_date.isoformat() }}"
-                                           title="View/Edit Logs for {{ eq.code }} on {{ day_date.strftime('%Y-%m-%d') }}">
-                                            <i class="fas fa-pencil-alt fa-xs"></i> {# Pencil icon #}
+                                           title="View/Edit Usage Logs for {{ eq.code }} on {{ day_date.strftime('%Y-%m-%d') }}">
+                                            <i class="fas fa-pencil-alt fa-xs"></i>
                                         </a>
 
                                     {% else %}
+                                        {# Display a dash if no logs exist for this day #}
                                         <span class="text-muted" style="font-size: 0.8em;">-</span>
                                     {% endif %}
                                 </td>
-                            {% endfor %}
+                            {% endfor %} {# End loop through dates #}
                         </tr>
-                    {% endfor %}
+                    {% endfor %} {# End loop through equipment #}
                 </tbody>
+
             </table>
         </div>
     {% elif not error %}
-        <p class="text-muted text-center">No usage logs or equipment found to display for the last 10 days.</p>
+        <p class="text-muted text-center">No checklist logs or equipment found to display for the last 10 days.</p>
     {% endif %}
-
 </div>
-
-{% endblock %}
-
-{# Script block will be inherited from pm_base.html where we will add the JS #}
+{% endblock %}---------------**********************************************************************************************************------------------------------------------------------------------]\''

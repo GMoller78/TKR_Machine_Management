@@ -2803,15 +2803,14 @@ def checklist_logs():
 
         logging.debug(f"Processed checklist data structure contains entries for {len(processed_data)} equipment.")
         view_title = 'Checklist Log Matrix (Last 10 Days)'
-
+        base_url = url_for('planned_maintenance.dashboard', _external=False).rstrip('/')
         # 5. Render the template
-        return render_template(
-            'pm_checklist_logs_matrix.html',
-            all_equipment=all_equipment,
-            dates_in_range=dates_in_range,
-            processed_data=processed_data,
-            title=view_title
-        )
+        return render_template('pm_checklist_logs_matrix.html', 
+                          base_url=base_url, 
+                          title="Checklist Logs Matrix", 
+                          all_equipment=all_equipment, 
+                          dates_in_range=dates_in_range, 
+                          processed_data=processed_data)
 
     except Exception as e:
         logging.error(f"--- Error loading checklist log matrix view: {e} ---", exc_info=True)
@@ -2899,14 +2898,13 @@ def usage_logs():
         view_title = 'Usage Log Matrix (Last 10 Days)'
 
         # 5. Render the template
-        return render_template(
-            'pm_usage_logs.html', # Use the updated template name
-            all_equipment=all_equipment,
-            dates_in_range=dates_in_range,
-            processed_data=processed_data,
-            title=view_title
-        )
-
+        base_url = url_for('planned_maintenance.dashboard', _external=False).rstrip('/')
+        return render_template('pm_usage_logs.html',      # *** CORRECTED TEMPLATE NAME ***
+                          base_url=base_url,               # You might not need base_url anymore if you removed it earlier
+                          title="Usage Logs Matrix",
+                          all_equipment=all_equipment,
+                          dates_in_range=dates_in_range,
+                          processed_data=processed_data)
     except Exception as e:
         logging.error(f"--- Error loading usage log matrix view: {e} ---", exc_info=True)
         flash(f"An error occurred while loading the usage logs: {e}", "danger")
@@ -3275,49 +3273,61 @@ def edit_usage_log_form(log_id):
 
 
 # === Routes to PROCESS Edit Form Submission ===
-
 @bp.route('/checklist/edit/<int:log_id>', methods=['POST'])
 def edit_checklist_log(log_id):
     log = Checklist.query.get_or_404(log_id)
-    form = ChecklistEditForm(request.form) # Process data from submission
-
+    form = ChecklistEditForm(request.form)
     if form.validate_on_submit():
         try:
-            # Update log object from form data
             log.status = form.status.data
             log.issues = form.issues.data
             log.operator = form.operator.data
-
-            # Handle datetime carefully - form gives naive, assume it's intended as UTC
             naive_dt = form.check_date.data
             if naive_dt:
-                log.check_date = naive_dt.replace(tzinfo=timezone.utc) # Make it UTC aware
-            else:
-                log.check_date = None # Or handle error
-
+                log.check_date = naive_dt.replace(tzinfo=timezone.utc)
             db.session.commit()
-            flash(f'Checklist log ID {log.id} updated successfully.', 'success')
-            # Redirect back to the matrix view (or potentially the dashboard)
-            return redirect(url_for('planned_maintenance.checklist_logs'))
+            return jsonify({'success': True, 'message': f'Checklist log ID {log.id} updated successfully.'})
         except Exception as e:
             db.session.rollback()
-            logging.error(f"Error updating checklist log {log_id}: {e}", exc_info=True)
-            flash(f'Error updating checklist log: {e}', 'danger')
-            # How to handle error? Re-render form? Problematic in modal context.
-            # Redirecting is simpler.
-            return redirect(url_for('planned_maintenance.checklist_logs')) # Redirect on error too
+            return jsonify({'success': False, 'error': str(e)}), 500
     else:
-        # Validation failed - normally re-render form with errors
-        # In modal context, this is tricky. Simplest is to flash errors and redirect.
-        for field, errors in form.errors.items():
-            for error in errors:
-                flash(f"Error in {getattr(form, field).label.text}: {error}", 'warning')
-        return redirect(url_for('planned_maintenance.checklist_logs')) # Redirect on validation failure
+        errors = {field: errors for field, errors in form.errors.items()}
+        return jsonify({'success': False, 'error': 'Validation failed', 'errors': errors}), 400
 
 @bp.route('/usage/edit/<int:log_id>', methods=['POST'])
 def edit_usage_log(log_id):
     log = UsageLog.query.get_or_404(log_id)
+    # Use request.form directly with the form for AJAX posts
     form = UsageLogEditForm(request.form)
+
+    # Use WTForms validation
+    if form.validate(): # Use validate() instead of validate_on_submit for direct form data
+        try:
+            log.usage_value = form.usage_value.data
+
+            naive_dt = form.log_date.data
+            if naive_dt:
+                 # Assume naive datetime from form represents UTC
+                 log.log_date = naive_dt.replace(tzinfo=timezone.utc)
+            else:
+                 # Handle case where date might be cleared
+                 log.log_date = None # Or set to a default if required
+
+            db.session.commit()
+            logging.info(f"Usage log ID {log.id} updated successfully via AJAX.")
+            # Return JSON success response
+            return jsonify({'success': True, 'message': f'Usage log ID {log.id} updated successfully.'})
+
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Error updating usage log {log_id} via AJAX: {e}", exc_info=True)
+            # Return JSON error response
+            return jsonify({'success': False, 'error': f'Database error: {str(e)}'}), 500
+    else:
+        # Validation failed, return JSON error response with validation errors
+        errors = {field: errors for field, errors in form.errors.items()}
+        logging.warning(f"Validation failed for usage log edit {log_id}: {errors}")
+        return jsonify({'success': False, 'error': 'Validation failed', 'errors': errors}), 400
 
     if form.validate_on_submit():
         try:

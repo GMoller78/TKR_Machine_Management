@@ -9,7 +9,7 @@
         <div class="col-12">
              <a href="{{ url_for('planned_maintenance.dashboard') }}" class="btn btn-sm btn-outline-secondary">Back to Dashboard</a>
              <small class="text-muted ms-3">Showing latest check status & count per day for the last 10 days.</small>
-              <span class="badge bg-light text-dark border ms-3">#: Count</span> {# Added Legend #}
+              <span class="badge bg-light text-dark border ms-3">#: Count</span>
         </div>
     </div>
 
@@ -39,26 +39,23 @@
                             <td class="fw-bold align-middle">
                                 {{ eq.code }}
                                 <div class="text-muted small">{{ eq.name }}</div>
-                                <div class="text-muted small fst-italic">{{ eq.type }}</div> {# Added Type #}
+                                <div class="text-muted small fst-italic">{{ eq.type }}</div>
                             </td>
 
                             {% for day_date in dates_in_range %}
                                 {% set cell_data = processed_data.get(eq.id, {}).get(day_date) %}
                                 {% set latest_log_info = cell_data.latest_log if cell_data else None %}
-                                <td class="text-center align-middle position-relative"> {# Add position-relative for icon #}
+                                <td class="text-center align-middle position-relative">
                                     {% if latest_log_info %}
-                                        {# --- Prepare Tooltip Content (for latest log) --- #}
                                         {% set tooltip_title = latest_log_info.full_timestamp_str + '<br>Op: ' + latest_log_info.operator %}
                                         {% if latest_log_info.comments %}
                                             {% set tooltip_title = tooltip_title + '<br>Notes: ' + latest_log_info.comments|escape %}
                                         {% endif %}
 
-                                        {# Display Count #}
                                         <span class="badge bg-light text-dark border me-1" style="font-size: 0.8em;">
                                             {{ cell_data.count }}
                                         </span>
 
-                                        {#--- Status Badge with Tooltip (for latest log) ---#}
                                         <span
                                             class="badge {% if latest_log_info.status == 'Go' %}bg-success{% elif latest_log_info.status == 'Go But' %}bg-warning text-dark{% else %}bg-danger{% endif %}"
                                             data-bs-toggle="tooltip"
@@ -69,28 +66,21 @@
                                             {{ latest_log_info.status }}
                                         </span>
 
-                                        {# Edit Icon Trigger #}
                                         <a href="#" class="edit-log-trigger position-absolute top-0 end-0 p-1 text-muted"
-                                           data-bs-toggle="modal"
-                                           data-bs-target="#editLogModal"
                                            data-log-type="checklist"
                                            data-equipment-id="{{ eq.id }}"
-                                           data-equipment-code="{{ eq.code }}" {# Pass code for modal title #}
+                                           data-equipment-code="{{ eq.code }}"
                                            data-log-date="{{ day_date.isoformat() }}"
                                            title="View/Edit Logs for {{ eq.code }} on {{ day_date.strftime('%Y-%m-%d') }}">
-                                            <i class="fas fa-pencil-alt fa-xs"></i> {# Pencil icon #}
+                                            <i class="fas fa-pencil-alt fa-xs"></i>
                                         </a>
 
-                                        {# Optional: Display truncated comment from latest log #}
-                                        
                                         {% if latest_log_info.comments %}
                                             <div class="small text-muted mt-1"
                                                  style="font-size: 0.75em; line-height: 1.2; white-space: normal; word-break: break-word; max-height: 3.6em; overflow: hidden;">
                                                 {{ latest_log_info.comments|truncate(40, True)|escape }}
                                             </div>
                                         {% endif %}
-                                        
-
                                     {% else %}
                                         <span class="text-muted" style="font-size: 0.8em;">-</span>
                                     {% endif %}
@@ -104,8 +94,5 @@
     {% elif not error %}
         <p class="text-muted text-center">No checklist logs or equipment found to display for the last 10 days.</p>
     {% endif %}
-
 </div>
 {% endblock %}
-
-{# Script block will be inherited from pm_base.html #}
