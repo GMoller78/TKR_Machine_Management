@@ -1,0 +1,141 @@
+{% extends "pm_base.html" %}
+
+{% block title %}{{ title }} - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1>{{ title }}</h1>
+        <a href="{{ url_for('planned_maintenance.job_card_list') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i> Back to Job Card List
+        </a>
+    </div>
+
+    {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    <!-- Filter Form for Reports -->
+    <div class="card mb-4">
+        <div class="card-header"><i class="bi bi-filter me-1"></i>Report Filters</div>
+        <div class="card-body">
+            <form method="GET" action="{{ url_for('planned_maintenance.job_card_reports_dashboard') }}">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-2">
+                        <label for="equipment_type" class="form-label">Equipment Type</label>
+                        <select class="form-select form-select-sm" id="equipment_type" name="equipment_type">
+                            {% for et in report_equipment_types %}
+                            <option value="{{ et }}" {% if et == current_filters.equipment_type %}selected{% endif %}>{{ et }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="job_type" class="form-label">Job Type</label>
+                        <select class="form-select form-select-sm" id="job_type" name="job_type">
+                            {% for jt in report_job_types %}
+                            <option value="{{ jt }}" {% if jt == current_filters.job_type %}selected{% endif %}>{{ jt }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="technician_filter" class="form-label">Technician</label>
+                        <select class="form-select form-select-sm" id="technician_filter" name="technician_filter">
+                            {% for tech in report_technicians %}
+                            <option value="{{ tech }}" {% if tech == current_filters.technician_filter %}selected{% endif %}>{{ tech }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {# <<< NEW: Status Filter for Reports Dashboard >>> #}
+                    <div class="col-md-2">
+                        <label for="status_filter" class="form-label">Status (for Reports)</label>
+                        <select class="form-select form-select-sm" id="status_filter" name="status_filter">
+                            <option value="All" {% if 'All' == current_filters.status_filter %}selected{% endif %}>All Statuses</option>
+                            {% for status_opt in JOB_CARD_STATUSES %} {# Assuming JOB_CARD_STATUSES is available or pass it from route #}
+                                <option value="{{ status_opt }}" {% if status_opt == current_filters.status_filter %}selected{% endif %}>{{ status_opt }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="start_date" class="form-label">Date From (Completed)</label>
+                        <input type="date" class="form-control form-control-sm" id="start_date" name="start_date" value="{{ current_filters.start_date }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="end_date" class="form-label">Date To (Completed)</label>
+                        <input type="date" class="form-control form-control-sm" id="end_date" name="end_date" value="{{ current_filters.end_date }}">
+                    </div>
+                    <div class="col-md-12 mt-3 text-end"> {# Changed to full width for button alignment #}
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            <i class="bi bi-arrow-repeat me-1"></i> Update Metrics & Report Filters
+                        </button>
+                        <a href="{{ url_for('planned_maintenance.job_card_reports_dashboard') }}" class="btn btn-outline-secondary btn-sm ms-2">
+                            <i class="bi bi-x-circle me-1"></i> Clear All Filters
+                        </a>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Metrics Display (remains the same) -->
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card text-white bg-warning">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h4 class="card-title mb-0">{{ count_todo if count_todo is not none else 'N/A' }}</h4>
+                            <p class="card-text mb-0">Job Cards 'To Do'</p>
+                        </div>
+                        <i class="bi bi-list-task fs-1 opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card text-white bg-danger">
+                <div class="card-body">
+                     <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h4 class="card-title mb-0">{{ count_overdue if count_overdue is not none else 'N/A' }}</h4>
+                            <p class="card-text mb-0">Job Cards Overdue</p>
+                        </div>
+                        <i class="bi bi-alarm-fill fs-1 opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card text-white bg-success">
+                <div class="card-body">
+                     <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h4 class="card-title mb-0">{{ count_completed_in_period if count_completed_in_period is not none else 'N/A' }}</h4>
+                            <p class="card-text mb-0">Completed ({{ completed_period_label }})</p>
+                        </div>
+                        <i class="bi bi-check-circle-fill fs-1 opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Links to Detailed Reports -->
+    <div class="card">
+        <div class="card-header"><i class="bi bi-file-earmark-text me-1"></i>Detailed Reports</div>
+        <div class="list-group list-group-flush">
+            <a href="{{ url_for('planned_maintenance.report_jobs_by_technician', 
+                                equipment_type=current_filters.equipment_type, 
+                                job_type=current_filters.job_type, 
+                                technician_filter=current_filters.technician_filter,
+                                status_filter=current_filters.status_filter,  
+                                start_date=current_filters.start_date,
+                                end_date=current_filters.end_date) }}" 
+               class="list-group-item list-group-item-action">
+                <i class="bi bi-person-badge me-2"></i>View Jobs Grouped by Technician
+                <small class="text-muted d-block">Lists job cards, grouped by assigned technician, respecting above filters (including status).</small>
+            </a>
+            <!-- Add links to other reports here -->
+        </div>
+    </div>
+</div>
+{% endblock %}

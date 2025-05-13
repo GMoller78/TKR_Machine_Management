@@ -3,9 +3,9 @@
 {% block title %}Print Job Card {{ job_card.job_number }} - {{ super() }}{% endblock %}
 
 {% block content %}
-<div class="container">
-    <div class="row mb-4">
-        <div class="col-12 d-print-none">
+<div class="container print-container"> {# Added a class for print-specific styling #}
+    <div class="row mb-3 d-print-none"> {# Reduced margin #}
+        <div class="col-12">
             <div class="d-flex justify-content-between">
                 <h1>Print Preview: Job Card #{{ job_card.job_number }}</h1>
                 <div>
@@ -24,15 +24,15 @@
     <!-- Printable Job Card -->
     <div class="row">
         <div class="col-12">
-            <div class="card">
+            <div class="card printable-card"> {# Added a class for print-specific styling #}
                 <div class="card-header">
                     <div class="row">
-                        <div class="col-6">
-                            <h2 class="mb-0">JOB CARD #{{ job_card.job_number }}</h2>
+                        <div class="col-7"> {# Adjusted column for more space #}
+                            <h2 class="mb-0 job-card-title">JOB CARD #{{ job_card.job_number }}</h2>
                         </div>
-                        <div class="col-6 text-end">
+                        <div class="col-5 text-end"> {# Adjusted column #}
                             {% set is_legal = job_card.job_number.startswith('LC-') %}
-                            <h4>
+                            <h4 class="job-type-badge">
                                 <span class="badge {% if is_legal %}bg-info{% else %}bg-secondary{% endif %}">
                                     {{ "LEGAL COMPLIANCE" if is_legal else "MAINTENANCE TASK" }}
                                 </span>
@@ -41,12 +41,12 @@
                     </div>
                 </div>
                 <div class="card-body">
-                    <div class="row mb-4">
-                        <div class="col-6">
+                    <div class="row mb-2"> {# Reduced margin #}
+                        <div class="col-md-6 mb-2 mb-md-0"> {# Ensure stacking on small screens, side-by-side on medium+ #}
                             <h5>Equipment Details</h5>
-                            <table class="table table-bordered table-sm">
+                            <table class="table table-bordered table-sm details-table">
                                 <tr>
-                                    <th style="width: 30%">Code:</th>
+                                    <th style="width: 25%">Code:</th> {# Adjusted width slightly #}
                                     <td><strong>{{ job_card.equipment_ref.code }}</strong></td>
                                 </tr>
                                 <tr>
@@ -59,9 +59,9 @@
                                 </tr>
                             </table>
                         </div>
-                        <div class="col-6">
+                        <div class="col-md-6">
                             <h5>Job Details</h5>
-                            <table class="table table-bordered table-sm">
+                            <table class="table table-bordered table-sm details-table">
                                 <tr>
                                     <th style="width: 30%">Due Date:</th>
                                     <td>{{ job_card.due_date.strftime('%Y-%m-%d') if job_card.due_date else 'Not Set' }}</td>
@@ -86,10 +86,10 @@
                         </div>
                     </div>
 
-                    <div class="row mb-4">
+                    <div class="row mb-2"> {# Reduced margin #}
                         <div class="col-12">
                             <h5>Task Description</h5>
-                            <div class="p-3 bg-light border rounded">
+                            <div class="p-2 bg-light border rounded task-description-box"> {# Reduced padding #}
                                 {{ job_card.description }}
                             </div>
                         </div>
@@ -98,10 +98,10 @@
                     <!-- Parts Used Section -->
                     {% set parts = job_card.parts_used.all() %}
                     {% if parts %}
-                    <div class="row mb-4">
+                    <div class="row mb-2"> {# Reduced margin #}
                         <div class="col-12">
                             <h5>Parts Used</h5>
-                            <table class="table table-bordered table-sm">
+                            <table class="table table-bordered table-sm details-table">
                                 <thead>
                                     <tr>
                                         <th>Part Number</th>
@@ -127,10 +127,10 @@
 
                     <!-- Comments Section -->
                     {% if job_card.comments %}
-                    <div class="row mb-4">
+                    <div class="row mb-2"> {# Reduced margin #}
                         <div class="col-12">
                             <h5>Comments</h5>
-                            <div class="p-3 bg-light border rounded">
+                            <div class="p-2 bg-light border rounded comments-box"> {# Reduced padding #}
                                 <pre class="mb-0" style="white-space: pre-wrap;">{{ job_card.comments }}</pre>
                             </div>
                         </div>
@@ -139,12 +139,12 @@
 
                     <!-- Completion Information -->
                     {% if job_card.status == 'Done' and job_card.start_datetime and job_card.end_datetime %}
-                    <div class="row mb-4">
+                    <div class="row mb-2"> {# Reduced margin #}
                         <div class="col-12">
                             <h5>Completion Information</h5>
-                            <table class="table table-bordered table-sm">
+                            <table class="table table-bordered table-sm details-table">
                                 <tr>
-                                    <th style="width: 30%">Start Time:</th>
+                                    <th style="width: 20%">Start Time:</th> {# Adjusted width #}
                                     <td>{{ job_card.start_datetime.strftime('%Y-%m-%d %H:%M') }}</td>
                                 </tr>
                                 <tr>
@@ -164,18 +164,55 @@
                         </div>
                     </div>
                     {% else %}
-                    <!-- Signature Areas for incomplete jobs -->
-                    <div class="row mt-5">
+                    <!-- Manual Completion Details & Signature Areas for incomplete jobs -->
+                    <div class="row mt-3 manual-completion-section"> {# Reduced margin #}
+                        <div class="col-12">
+                            <h5 class="mb-2">Manual Completion Details</h5> {# Reduced margin #}
+                            <table class="table table-bordered table-sm manual-details-table">
+                                <tbody>
+                                    <tr>
+                                        <th style="width: 20%;">Start Date & Time:</th>
+                                        <td style="width: 30%;">_________________________</td>
+                                        <th style="width: 20%;">End Date & Time:</th>
+                                        <td style="width: 30%;">_________________________</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Parts Used?</th>
+                                        <td colspan="3">
+                                            <div class="form-check form-check-inline">
+                                                <input class="form-check-input print-checkbox" type="checkbox" id="partsUsedYesM" value="yes">
+                                                <label class="form-check-label" for="partsUsedYesM">Yes</label>
+                                            </div>
+                                            <div class="form-check form-check-inline">
+                                                <input class="form-check-input print-checkbox" type="checkbox" id="partsUsedNoM" value="no">
+                                                <label class="form-check-label" for="partsUsedNoM">No</label>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <th>Additional Comments / Parts Used:</th>
+                                        <td colspan="3" style="height: 40px; vertical-align: top;"> 
+                                            {## Consider removing the underscores if it causes wrapping issues, or use fewer ##}
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="row mt-3 signature-section"> {# Reduced margin #}
                         <div class="col-6">
                             <div class="border-top pt-2">
-                                <p class="text-center mb-1">Technician Signature</p>
-                                <p class="text-center">Date: _________________</p>
+                                <p class="mb-1">Technician Name: _________________________</p>
+                                <p class="mb-1">Signature: _________________________</p>
+                                <p class="mb-0">Date: ____________</p> {# Reduced margin #}
                             </div>
                         </div>
                         <div class="col-6">
                             <div class="border-top pt-2">
-                                <p class="text-center mb-1">Supervisor Signature</p>
-                                <p class="text-center">Date: _________________</p>
+                                <p class="mb-1">Supervisor Name: _________________________</p>
+                                <p class="mb-1">Signature: _________________________</p>
+                                <p class="mb-0">Date: ____________</p> {# Reduced margin #}
                             </div>
                         </div>
                     </div>
@@ -190,30 +227,106 @@
 </div>
 
 <style>
-@media print {
-    body {
-        font-size: 12pt;
+@media screen { /* Styles for screen view */
+    .print-container {
+        max-width: 960px; /* Or your preferred max width for screen */
     }
+}
+
+@media print {
+    @page {
+        size: landscape;
+        margin: 0.5in; /* Adjust margins as needed */
+    }
+
+    body {
+        font-size: 10pt; /* Slightly smaller font for print */
+        -webkit-print-color-adjust: exact; /* Ensure background colors print in Chrome/Safari */
+        print-color-adjust: exact; /* Standard */
+    }
+
+    .d-print-none {
+        display: none !important;
+    }
+    
+    .print-container {
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    .printable-card {
+        border: 1px solid #000 !important;
+        box-shadow: none !important;
+        margin-bottom: 0 !important; /* Remove margin for the card itself in print */
+    }
+
+    .card-header {
+        background-color: #f0f0f0 !important;
+        padding: 0.25rem 0.5rem; /* Reduced padding */
+    }
+    .job-card-title {
+        font-size: 1.5rem; /* Adjust as needed */
+    }
+    .job-type-badge h4 {
+        font-size: 1rem; /* Adjust as needed */
+        margin-bottom: 0;
+    }
+
+    .card-body {
+        padding: 0.5rem; /* Reduced padding */
+    }
+    
     .table {
         width: 100% !important;
+        margin-bottom: 0.5rem; /* Reduced margin between tables */
     }
+    .details-table th, .details-table td,
+    .manual-details-table th, .manual-details-table td {
+        padding: 0.2rem 0.4rem; /* Reduced padding in table cells */
+        font-size: 9pt;
+    }
+
     .badge {
         border: 1px solid #000;
         color: #000 !important;
         background-color: transparent !important;
+        font-size: 0.8em;
+        padding: 0.2em 0.4em;
     }
-    .bg-light {
+    .bg-light { /* This applies to task description and comments boxes */
         background-color: #f8f9fa !important;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
     }
-    .card {
-        border: 1px solid #000 !important;
+    .task-description-box, .comments-box {
+        padding: 0.25rem !important; /* Further reduce padding if needed */
+        font-size: 9pt;
     }
-    .card-header {
-        background-color: #f0f0f0 !important;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
+    .comments-box pre {
+        font-size: 9pt;
+    }
+
+    h5 {
+        font-size: 1.1em;
+        margin-bottom: 0.25rem; /* Reduced margin */
+    }
+
+    .manual-completion-section, .signature-section {
+        margin-top: 0.5rem !important; /* Reduced top margin */
+    }
+    .signature-section p {
+        font-size: 9pt;
+        margin-bottom: 0.1rem !important;
+    }
+    .print-checkbox { /* Style checkboxes for better print visibility if needed */
+        transform: scale(1.1); 
+        margin-right: 3px;
+        vertical-align: middle;
+    }
+    .form-check-label {
+        font-size: 9pt;
+    }
+    .card-footer {
+        padding: 0.25rem;
     }
 }
 </style>

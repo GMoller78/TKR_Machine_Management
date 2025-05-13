@@ -35,8 +35,24 @@
              <li class="nav-item">
               <a class="nav-link {% if request.endpoint == 'planned_maintenance.legal_tasks_list' %}active{% endif %}" href="{{ url_for('planned_maintenance.legal_tasks_list') }}">Legal Compliance</a>
             </li>
-            <li class="nav-item">
-              <a class="nav-link {% if request.endpoint == 'planned_maintenance.job_card_list' %}active{% endif %}" href="{{ url_for('planned_maintenance.job_card_list') }}">Job Cards</a>
+            <li class="nav-item dropdown">
+              <a class="nav-link dropdown-toggle 
+                 {% if request.endpoint == 'planned_maintenance.job_card_list' or 
+                      request.endpoint == 'planned_maintenance.job_card_reports_dashboard' or
+                      request.endpoint == 'planned_maintenance.report_jobs_by_technician' %}active{% endif %}" 
+                 href="#" id="navbarDropdownJobCards" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                Job Cards
+              </a>
+              <ul class="dropdown-menu dropdown-menu-dark" aria-labelledby="navbarDropdownJobCards">
+                <li>
+                  <a class="dropdown-item {% if request.endpoint == 'planned_maintenance.job_card_list' %}active{% endif %}" 
+                     href="{{ url_for('planned_maintenance.job_card_list') }}">Job Card List</a>
+                </li>
+                <li>
+                  <a class="dropdown-item {% if request.endpoint == 'planned_maintenance.job_card_reports_dashboard' %}active{% endif %}" 
+                     href="{{ url_for('planned_maintenance.job_card_reports_dashboard') }}">Reports & Metrics</a>
+                </li>
+              </ul>
             </li>
             <li class="nav-item">
               <a class="nav-link {% if request.endpoint == 'planned_maintenance.maintenance_plan_list_view' %}active{% endif %}" href="{{ url_for('planned_maintenance.maintenance_plan_list_view') }}">Planning</a>

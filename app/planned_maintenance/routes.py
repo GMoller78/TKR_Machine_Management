@@ -1318,6 +1318,253 @@ def edit_equipment(id):
 # ==============================================================================
 # === Job cards            ===
 # ==============================================================================
+@bp.route('/job_card_reports/by_technician', methods=['GET'])
+def report_jobs_by_technician():
+    """Displays job cards grouped by technician, based on filters."""
+    logging.debug("--- Request for Jobs by Technician Report ---")
+    try:
+        # 1. Get Filter Parameters from query args
+        equipment_type_filter = request.args.get('equipment_type', 'All')
+        job_type_filter = request.args.get('job_type', 'All')
+        technician_filter = request.args.get('technician_filter', 'All')
+        status_filter = request.args.get('status_filter', 'All') # <<< NEW: Get status filter
+        
+        start_date_str = request.args.get('start_date', '')
+        end_date_str = request.args.get('end_date', '')
+
+        filter_start_date = None
+        filter_end_date = None
+        date_filter_active = False
+
+        if start_date_str:
+            try:
+                filter_start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+                date_filter_active = True
+            except ValueError:
+                flash(f"Invalid start date for report: {start_date_str}.", "warning")
+        if end_date_str:
+            try:
+                filter_end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                date_filter_active = True
+            except ValueError:
+                flash(f"Invalid end date for report: {end_date_str}.", "warning")
+        
+        # 2. Build Query
+        query = JobCard.query.options(db.joinedload(JobCard.equipment_ref))
+
+        if equipment_type_filter and equipment_type_filter != 'All':
+            query = query.join(Equipment, JobCard.equipment_id == Equipment.id)\
+                         .filter(Equipment.type == equipment_type_filter)
+        
+        if job_type_filter == 'Maintenance':
+            query = query.filter(JobCard.job_number.like('JC-%'))
+        elif job_type_filter == 'Legal':
+            query = query.filter(JobCard.job_number.like('LC-%'))
+
+        # Apply technician filter if it's not 'All'
+        if technician_filter and technician_filter != 'All':
+            if technician_filter == 'Unassigned':
+                query = query.filter(or_(JobCard.technician == None, JobCard.technician == ''))
+            else:
+                query = query.filter(JobCard.technician == technician_filter)
+        
+        # <<< NEW: Apply Status Filter to the report query >>>
+        if status_filter and status_filter != 'All' and status_filter in JOB_CARD_STATUSES:
+            query = query.filter(JobCard.status == status_filter)
+
+        # Apply date filters (e.g., to filter JCs by due date)
+        if filter_start_date:
+            query = query.filter(JobCard.due_date >= datetime.combine(filter_start_date, time.min))
+        if filter_end_date:
+            query = query.filter(JobCard.due_date <= datetime.combine(filter_end_date, time.max))
+
+        all_job_cards = query.order_by(JobCard.technician, JobCard.due_date.asc().nullslast()).all()
+
+        # 3. Group by Technician
+        jobs_by_technician = defaultdict(list)
+        for jc in all_job_cards:
+            tech_name = jc.technician if jc.technician and jc.technician.strip() else "Unassigned"
+            jc.is_overdue = jc.due_date and jc.due_date < datetime.combine(date.today(), time.min) and jc.status not in ['Done', 'Deleted']
+            jobs_by_technician[tech_name].append(jc)
+        
+        sorted_technicians = sorted(jobs_by_technician.keys(), key=lambda t: (t == "Unassigned", t.lower()))
+
+        current_report_filters = {
+            'equipment_type': equipment_type_filter,
+            'job_type': job_type_filter,
+            'technician_filter': technician_filter,
+            'status_filter': status_filter, # <<< NEW: Pass status filter back
+            'start_date': start_date_str,
+            'end_date': end_date_str,
+            'date_filter_active': date_filter_active,
+            'filter_start_date_obj': filter_start_date,
+            'filter_end_date_obj': filter_end_date,
+        }
+        
+        filter_summary_parts = []
+        if equipment_type_filter != 'All': filter_summary_parts.append(f"Equip. Type: {equipment_type_filter}")
+        if job_type_filter != 'All': filter_summary_parts.append(f"Job Type: {job_type_filter}")
+        if technician_filter != 'All': filter_summary_parts.append(f"Technician: {technician_filter}")
+        if status_filter != 'All': filter_summary_parts.append(f"Status: {status_filter}") # <<< NEW: Add to summary
+        if filter_start_date: filter_summary_parts.append(f"Due From: {filter_start_date.strftime('%Y-%m-%d')}")
+        if filter_end_date: filter_summary_parts.append(f"Due To: {filter_end_date.strftime('%Y-%m-%d')}")
+        
+        filter_summary = ", ".join(filter_summary_parts) if filter_summary_parts else "None"
+
+        return render_template(
+            'pm_report_jobs_by_technician.html',
+            title=f"Job Cards by Technician ({status_filter if status_filter != 'All' else 'All Statuses'})", # Update title
+            jobs_by_technician=jobs_by_technician,
+            sorted_technicians=sorted_technicians,
+            current_filters=current_report_filters,
+            filter_summary=filter_summary,
+            today=date.today()
+        )
+
+    except Exception as e:
+        logging.error(f"--- Error generating jobs by technician report: {e} ---", exc_info=True)
+        flash(f"An error occurred: {e}", "danger")
+        # Pass back attempted filters on error
+        error_filters = {
+            'equipment_type': request.args.get('equipment_type', 'All'),
+            'job_type': request.args.get('job_type', 'All'),
+            'technician_filter': request.args.get('technician_filter', 'All'),
+            'status_filter': request.args.get('status_filter', 'All'),
+            'start_date': request.args.get('start_date', ''),
+            'end_date': request.args.get('end_date', '')
+        }
+        return redirect(url_for('planned_maintenance.job_card_reports_dashboard', **error_filters))
+
+@bp.route('/job_card_reports', methods=['GET'])
+def job_card_reports_dashboard():
+    """Displays job card metrics and links to detailed reports."""
+    logging.debug("--- Request for Job Card Reports Dashboard ---")
+    try:
+        # 1. Get Filter Parameters
+        equipment_type_filter = request.args.get('equipment_type', 'All')
+        job_type_filter = request.args.get('job_type', 'All')
+        technician_filter = request.args.get('technician_filter', 'All')
+        start_date_str = request.args.get('start_date', '')
+        end_date_str = request.args.get('end_date', '')
+        status_filter_for_reports = request.args.get('status_filter', 'All')
+
+        # 2. Prepare Date Range for "Completed" metric
+        # If date range is provided in filters, use it. Otherwise, default to current month.
+        filter_start_date = None
+        filter_end_date = None
+        
+        if start_date_str:
+            try:
+                filter_start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                flash(f"Invalid start date for report: {start_date_str}. Using no start date.", "warning")
+        
+        if end_date_str:
+            try:
+                filter_end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                flash(f"Invalid end date for report: {end_date_str}. Using no end date.", "warning")
+
+        # For "Completed" metric, define the period
+        today_obj = date.today()
+        if filter_start_date and filter_end_date:
+            completed_period_start_dt = datetime.combine(filter_start_date, time.min)
+            completed_period_end_dt = datetime.combine(filter_end_date, time.max)
+            completed_period_label = f"{filter_start_date.strftime('%b %d, %Y')} to {filter_end_date.strftime('%b %d, %Y')}"
+        elif filter_start_date: # Only start date given
+            completed_period_start_dt = datetime.combine(filter_start_date, time.min)
+            completed_period_end_dt = datetime.combine(today_obj, time.max) # up to today
+            completed_period_label = f"From {filter_start_date.strftime('%b %d, %Y')} to Today"
+        else: # Default to current month if no specific range given
+            current_month_start_date = today_obj.replace(day=1)
+            days_in_month = monthrange(today_obj.year, today_obj.month)[1]
+            current_month_end_date = today_obj.replace(day=days_in_month)
+            completed_period_start_dt = datetime.combine(current_month_start_date, time.min)
+            completed_period_end_dt = datetime.combine(current_month_end_date, time.max)
+            completed_period_label = f"Current Month ({today_obj.strftime('%B %Y')})"
+
+
+        # 3. Build Base Query for Metrics
+        base_query = JobCard.query
+
+        # Apply common filters
+        if equipment_type_filter and equipment_type_filter != 'All':
+            base_query = base_query.join(Equipment, JobCard.equipment_id == Equipment.id)\
+                                   .filter(Equipment.type == equipment_type_filter)
+        
+        if job_type_filter == 'Maintenance':
+            base_query = base_query.filter(JobCard.job_number.like('JC-%'))
+        elif job_type_filter == 'Legal':
+            base_query = base_query.filter(JobCard.job_number.like('LC-%'))
+
+        if technician_filter and technician_filter != 'All':
+            if technician_filter == 'Unassigned':
+                base_query = base_query.filter(or_(JobCard.technician == None, JobCard.technician == ''))
+            else:
+                base_query = base_query.filter(JobCard.technician == technician_filter)
+
+        # 4. Calculate Metrics
+        count_todo = base_query.filter(JobCard.status == 'To Do').count()
+        
+        # Overdue: due_date < today (midnight) AND status is not Done or Deleted
+        overdue_datetime_threshold = datetime.combine(today_obj, time.min)
+        count_overdue = base_query.filter(
+            JobCard.due_date < overdue_datetime_threshold,
+            JobCard.status.notin_(['Done', 'Deleted'])
+        ).count()
+
+        count_completed_in_period = base_query.filter(
+            JobCard.status == 'Done',
+            JobCard.end_datetime >= completed_period_start_dt,
+            JobCard.end_datetime <= completed_period_end_dt
+        ).count()
+
+        # 5. Data for Filter Dropdowns
+        equipment_types_query = db.session.query(Equipment.type).distinct().order_by(Equipment.type).all()
+        report_equipment_types = ['All'] + [t[0] for t in equipment_types_query if t[0]]
+
+        technicians_query = db.session.query(JobCard.technician).distinct().order_by(JobCard.technician).all()
+        report_technicians = ['All', 'Unassigned'] + [t[0] for t in technicians_query if t[0] and t[0].strip()]
+        
+        report_job_types = ['All', 'Maintenance', 'Legal']
+
+        current_report_filters = {
+            'equipment_type': equipment_type_filter,
+            'job_type': job_type_filter,
+            'technician_filter': technician_filter,
+            'status_filter': status_filter_for_reports,
+            'start_date': start_date_str,
+            'end_date': end_date_str
+        }
+        
+        logging.debug(f"Report Metrics: ToDo={count_todo}, Overdue={count_overdue}, Completed ({completed_period_label})={count_completed_in_period}")
+
+        return render_template(
+            'pm_job_card_reports_dashboard.html',
+            title="Job Card Reports & Metrics",
+            count_todo=count_todo,
+            count_overdue=count_overdue,
+            count_completed_in_period=count_completed_in_period,
+            completed_period_label=completed_period_label,
+            report_equipment_types=report_equipment_types,
+            report_job_types=report_job_types,
+            report_technicians=report_technicians,
+            JOB_CARD_STATUSES=JOB_CARD_STATUSES,
+            current_filters=current_report_filters
+        )
+
+    except Exception as e:
+        logging.error(f"--- Error loading job card reports dashboard: {e} ---", exc_info=True)
+        flash(f"An error occurred: {e}", "danger")
+        return render_template(
+            'pm_job_card_reports_dashboard.html',
+            title="Job Card Reports & Metrics - Error",
+            error=str(e),
+            report_equipment_types=['All'], report_job_types=['All'], report_technicians=['All'],
+            JOB_CARD_STATUSES=JOB_CARD_STATUSES,
+            current_filters={'equipment_type': 'All', 'job_type': 'All', 'technician_filter': 'All', 'start_date': '', 'end_date': ''}
+        )
+
 
 @bp.route('/job_card/new_from_task/<int:task_id>', methods=['POST'])
 def new_job_card_from_task(task_id):
@@ -1397,8 +1644,8 @@ def new_job_card_from_task(task_id):
         flash(f"Error creating job card from task: {e}", "danger")
         return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
-@bp.route('/job_cards', methods=['GET'])
 
+@bp.route('/job_cards', methods=['GET'])
 def job_card_list():
     """Displays a list of job cards with filtering options."""
     logging.debug("--- Request for Job Card List View ---")
@@ -1406,22 +1653,18 @@ def job_card_list():
         # 1. Get Filter Parameters from Request Args
         page = request.args.get('page', 1, type=int)
         per_page = 25 # Or get from request.args or config
+        overdue_threshold_dt = datetime.combine(date.today(), time.min)
 
-        # Dates - filter by 'due_date' for relevance? Or 'created_at'? Let's use due_date
-        # Default to no date filter unless specified
         start_date_str = request.args.get('start_date', '')
         end_date_str = request.args.get('end_date', '')
-
-        # Equipment search - Text-based search
-        equipment_search_term = request.args.get('equipment_search', '').strip() # Get text and strip whitespace
-
-        # Status - Allow 'All' or specific status
-        status_filter = request.args.get('status', 'All') # Default to 'All'
+        equipment_search_term = request.args.get('equipment_search', '').strip()
+        status_filter = request.args.get('status', 'All')
+        job_type_filter = request.args.get('job_type', 'All')
         
-        # New: Job Type filter - 'All', 'Maintenance', or 'Legal'
-        job_type_filter = request.args.get('job_type', 'All') # Default to 'All'
+        # New Filters for job_card_list
+        equipment_type_filter = request.args.get('equipment_type', 'All') # New
+        technician_filter = request.args.get('technician_filter', 'All') # New
 
-        # Convert filter values
         start_date_val = None
         end_date_val = None
 
@@ -1436,7 +1679,7 @@ def job_card_list():
             except ValueError:
                 flash(f"Invalid end date format: {end_date_str}. Please use YYYY-MM-DD.", "warning")
 
-        logging.debug(f"Filters - Start: {start_date_val}, End: {end_date_val}, Equip Search: '{equipment_search_term}', Status: {status_filter}, Job Type: {job_type_filter}, Page: {page}")
+        logging.debug(f"Filters - Start: {start_date_val}, End: {end_date_val}, Equip Search: '{equipment_search_term}', Status: {status_filter}, Job Type: {job_type_filter}, Equip Type: {equipment_type_filter}, Technician: {technician_filter}, Page: {page}")
 
         # 2. Build Base Query
         query = JobCard.query.options(
@@ -1445,54 +1688,77 @@ def job_card_list():
 
         # 3. Apply Filters
         if start_date_val:
-            query = query.filter(JobCard.due_date >= start_date_val)
+            # Assuming due_date is the primary date filter for this list view
+            query = query.filter(JobCard.due_date >= datetime.combine(start_date_val, time.min))
         if end_date_val:
-            query = query.filter(JobCard.due_date <= end_date_val)
+            query = query.filter(JobCard.due_date <= datetime.combine(end_date_val, time.max))
 
-        # Apply equipment search filter *after* the join is guaranteed (by options/join)
-        if equipment_search_term:
+
+        if equipment_search_term: # Text search for equipment code/name
             search_pattern = f"%{equipment_search_term}%"
-            query = query.join(JobCard.equipment_ref).filter(
+            # Ensure join if not already implied by options or other joins
+            if Equipment not in [c.entity for c in query._join_entities]:
+                 query = query.join(JobCard.equipment_ref)
+            query = query.filter(
                 or_(
                     Equipment.code.ilike(search_pattern),
                     Equipment.name.ilike(search_pattern)
                 )
             )
+        
+        # Apply Equipment Type Filter
+        if equipment_type_filter and equipment_type_filter != 'All':
+            # Ensure join if not already implied
+            if Equipment not in [c.entity for c in query._join_entities]:
+                 query = query.join(JobCard.equipment_ref)
+            query = query.filter(Equipment.type == equipment_type_filter)
+
 
         if status_filter and status_filter != 'All' and status_filter in JOB_CARD_STATUSES:
             query = query.filter(JobCard.status == status_filter)
             
-        # Apply job type filter
         if job_type_filter == 'Maintenance':
             query = query.filter(JobCard.job_number.like('JC-%'))
         elif job_type_filter == 'Legal':
             query = query.filter(JobCard.job_number.like('LC-%'))
-        # 'All' doesn't need a filter
 
-        # 4. Ordering (e.g., newest first or by due date)
-        query = query.order_by(JobCard.id.desc()) # Or JobCard.due_date.desc().nullslast()
+        # Apply Technician Filter
+        if technician_filter and technician_filter != 'All':
+            if technician_filter == 'Unassigned':
+                query = query.filter(or_(JobCard.technician == None, JobCard.technician == ''))
+            else:
+                query = query.filter(JobCard.technician == technician_filter)
+
+
+        # 4. Ordering
+        query = query.order_by(JobCard.id.desc()) 
 
         # 5. Execute Query with Pagination
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
         job_cards_page = pagination.items
 
-        # 6. Generate WhatsApp URLs for the current page items
         for jc in job_cards_page:
             jc.whatsapp_share_url = generate_whatsapp_share_url(jc)
 
         # 7. Fetch Data for Filter Dropdowns
-        all_equipment = Equipment.query.order_by(Equipment.code).all()
+        # Equipment types
+        equipment_types_query = db.session.query(Equipment.type).distinct().order_by(Equipment.type).all()
+        equipment_types_for_filter = ['All'] + [t[0] for t in equipment_types_query if t[0]]
+
+        # Technicians
+        technicians_query = db.session.query(JobCard.technician).distinct().order_by(JobCard.technician).all()
+        technicians_for_filter = ['All', 'Unassigned'] + [t[0] for t in technicians_query if t[0] and t[0].strip()]
         
-        # 8. Define job type options for filter dropdown
         job_type_options = ['All', 'Maintenance', 'Legal']
 
-        # 9. Store filter values for repopulating the form
         current_filters = {
             'start_date': start_date_str,
             'end_date': end_date_str,
             'equipment_search': equipment_search_term,
             'status': status_filter,
-            'job_type': job_type_filter
+            'job_type': job_type_filter,
+            'equipment_type': equipment_type_filter, # New
+            'technician_filter': technician_filter    # New
         }
 
         logging.debug(f"Found {pagination.total} job cards matching filters. Displaying page {page} ({len(job_cards_page)} items).")
@@ -1500,27 +1766,32 @@ def job_card_list():
         return render_template(
             'pm_job_card_list.html',
             title="Job Card List",
-            pagination=pagination, # Pass pagination object
-            job_cards=job_cards_page, # Pass items for the current page
-            all_equipment=all_equipment,
-            job_card_statuses=['All'] + JOB_CARD_STATUSES, # Add 'All' option
-            job_type_options=job_type_options, # Pass job type options for filter
-            current_filters=current_filters, # Pass current filters back
-            today=date.today() # Pass today's date for potential defaults
+            pagination=pagination,
+            job_cards=job_cards_page,
+            # all_equipment=all_equipment, # Not needed directly if using search term
+            job_card_statuses=['All'] + JOB_CARD_STATUSES,
+            job_type_options=job_type_options,
+            equipment_types_for_filter=equipment_types_for_filter, # New
+            technicians_for_filter=technicians_for_filter,       # New
+            current_filters=current_filters,
+            today=date.today(),
+            overdue_threshold_dt=overdue_threshold_dt
         )
 
     except Exception as e:
         logging.error(f"--- Error loading job card list view: {e} ---", exc_info=True)
         flash(f"An error occurred while loading the job card list: {e}", "danger")
-        # Render the template safely on error
         return render_template(
             'pm_job_card_list.html',
             title="Job Card List - Error",
             error=f"Could not load job cards: {e}",
-            pagination=None, job_cards=[], all_equipment=[],
+            pagination=None, job_cards=[], 
             job_card_statuses=['All'] + JOB_CARD_STATUSES,
             job_type_options=['All', 'Maintenance', 'Legal'],
-            current_filters={}, today=date.today()
+            equipment_types_for_filter=['All'],
+            technicians_for_filter=['All'],
+            current_filters={}, today=date.today(),
+            overdue_threshold_dt=datetime.combine(date.today(), time.min)
         )
 
 @bp.route('/job_card/<int:id>', methods=['GET']) # Use GET to view details

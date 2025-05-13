@@ -1,11 +1,16 @@
-{# Modified pm_job_card_list.html with job type filter #}
+{# Modified pm_job_card_list.html with new filters #}
 {% extends "pm_base.html" %}
 
 {% block title %}{{ title }} - {{ super() }}{% endblock %}
 
 {% block content %}
 <div class="container-fluid">
-    <h1 class="mb-3">Job Card List</h1>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1>Job Card List</h1>
+        <a href="{{ url_for('planned_maintenance.job_card_reports_dashboard') }}" class="btn btn-info">
+            <i class="bi bi-bar-chart-line-fill me-1"></i> View Reports & Metrics
+        </a>
+    </div>
     
     <!-- Filter Form -->
     <div class="card mb-4">
@@ -14,53 +19,73 @@
         </div>
         <div class="card-body">
             <form method="GET" action="{{ url_for('planned_maintenance.job_card_list') }}">
-                <div class="row g-3">
+                <div class="row g-3 align-items-end">
                     <!-- Date Filters -->
-                    <div class="col-md-3">
-                        <label for="start_date" class="form-label">Start Date</label>
-                        <input type="date" class="form-control" id="start_date" name="start_date" 
+                    <div class="col-md-2">
+                        <label for="start_date" class="form-label">Due Start Date</label>
+                        <input type="date" class="form-control form-control-sm" id="start_date" name="start_date" 
                                value="{{ current_filters.start_date }}">
                     </div>
-                    <div class="col-md-3">
-                        <label for="end_date" class="form-label">End Date</label>
-                        <input type="date" class="form-control" id="end_date" name="end_date" 
+                    <div class="col-md-2">
+                        <label for="end_date" class="form-label">Due End Date</label>
+                        <input type="date" class="form-control form-control-sm" id="end_date" name="end_date" 
                                value="{{ current_filters.end_date }}">
                     </div>
                     
                     <!-- Status Filter -->
                     <div class="col-md-2">
                         <label for="status" class="form-label">Status</label>
-                        <select class="form-select" id="status" name="status">
-                            {% for status in job_card_statuses %}
-                                <option value="{{ status }}" {% if status == current_filters.status %}selected{% endif %}>{{ status }}</option>
+                        <select class="form-select form-select-sm" id="status" name="status">
+                            {% for status_opt in job_card_statuses %} {# Renamed loop variable #}
+                                <option value="{{ status_opt }}" {% if status_opt == current_filters.status %}selected{% endif %}>{{ status_opt }}</option>
                             {% endfor %}
                         </select>
                     </div>
                     
-                    <!-- New: Job Type Filter -->
+                    <!-- Job Type Filter -->
                     <div class="col-md-2">
                         <label for="job_type" class="form-label">Job Type</label>
-                        <select class="form-select" id="job_type" name="job_type">
-                            {% for job_type in job_type_options %}
-                                <option value="{{ job_type }}" {% if job_type == current_filters.job_type %}selected{% endif %}>{{ job_type }}</option>
+                        <select class="form-select form-select-sm" id="job_type" name="job_type">
+                            {% for type_opt in job_type_options %} {# Renamed loop variable #}
+                                <option value="{{ type_opt }}" {% if type_opt == current_filters.job_type %}selected{% endif %}>{{ type_opt }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Equipment Type Filter -->
+                    <div class="col-md-2">
+                        <label for="equipment_type" class="form-label">Equipment Type</label>
+                        <select class="form-select form-select-sm" id="equipment_type" name="equipment_type">
+                            {% for eq_type in equipment_types_for_filter %}
+                                <option value="{{ eq_type }}" {% if eq_type == current_filters.equipment_type %}selected{% endif %}>{{ eq_type }}</option>
                             {% endfor %}
                         </select>
                     </div>
                     
-                    <!-- Equipment Search -->
-                    <div class="col-md-2">
-                        <label for="equipment_search" class="form-label">Equipment</label>
-                        <input type="text" class="form-control" id="equipment_search" name="equipment_search" 
-                               placeholder="Search equipment..." value="{{ current_filters.equipment_search }}">
+                    <!-- Technician Filter -->
+                     <div class="col-md-2">
+                        <label for="technician_filter" class="form-label">Technician</label>
+                        <select class="form-select form-select-sm" id="technician_filter" name="technician_filter">
+                            {% for tech in technicians_for_filter %}
+                                <option value="{{ tech }}" {% if tech == current_filters.technician_filter %}selected{% endif %}>{{ tech }}</option>
+                            {% endfor %}
+                        </select>
                     </div>
-                    
+
+                    <!-- Equipment Search (Text) -->
+                    <div class="col-md-3">
+                        <label for="equipment_search" class="form-label">Equipment (Code/Name)</label>
+                        <input type="text" class="form-control form-control-sm" id="equipment_search" name="equipment_search" 
+                               placeholder="Search..." value="{{ current_filters.equipment_search }}">
+                    </div>
+                                        
                     <!-- Filter Buttons -->
-                    <div class="col-12 d-flex justify-content-end">
-                        <button type="submit" class="btn btn-primary me-2">
-                            <i class="bi bi-funnel me-1"></i> Apply Filters
+                    <div class="col-md-3 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary btn-sm me-2">
+                            <i class="bi bi-funnel"></i> Apply
                         </button>
-                        <a href="{{ url_for('planned_maintenance.job_card_list') }}" class="btn btn-outline-secondary">
-                            <i class="bi bi-x-circle me-1"></i> Clear Filters
+                        <a href="{{ url_for('planned_maintenance.job_card_list') }}" class="btn btn-outline-secondary btn-sm">
+                            <i class="bi bi-x-circle"></i> Clear
                         </a>
                     </div>
                 </div>
@@ -71,9 +96,9 @@
     <!-- Job Cards Table -->
     <div class="card mb-4">
         <div class="card-header d-flex justify-content-between align-items-center">
-            <span><i class="bi bi-list-task me-1"></i> Job Cards</span>
+            <span><i class="bi bi-list-task me-1"></i> Job Cards ({{ pagination.total if pagination else '0' }})</span>
             <div>
-                <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#newJobCardModal">
+                <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#newJobCardModal">
                     <i class="bi bi-plus-circle-fill me-1"></i> Create New Job Card
                 </button>
             </div>
@@ -92,7 +117,7 @@
                                 <th>Equipment</th>
                                 <th>Description</th>
                                 <th>Status</th>
-                                <th>Type</th>   <!-- New Type column -->
+                                <th>Type</th>
                                 <th>Due Date</th>
                                 <th>Technician</th>
                                 <th>Actions</th>
@@ -101,77 +126,91 @@
                         <tbody>
                             {% for jc in job_cards %}
                                 {% set is_legal = jc.job_number.startswith('LC-') %}
-                                <tr>
+                                {% set is_overdue = jc.due_date and jc.due_date < overdue_threshold_dt and jc.status not in ['Done', 'Deleted'] %}
+                                <tr class="{% if is_overdue %}table-danger{% endif %}">
                                     <td>{{ jc.job_number }}</td>
-                                    <td>{{ jc.equipment_ref.code }} - {{ jc.equipment_ref.name }}</td>
+                                    <td>
+                                        <small>
+                                        {{ jc.equipment_ref.code }} - {{ jc.equipment_ref.name }}
+                                        <br>({{ jc.equipment_ref.type }})
+                                        </small>
+                                    </td>
                                     <td>{{ jc.description | truncate(40) }}</td>
                                     <td>
                                         <span class="badge 
                                             {% if jc.status == 'To Do' %}bg-warning text-dark
                                             {% elif jc.status == 'In Progress' %}bg-info text-dark
                                             {% elif jc.status == 'Done' %}bg-success
+                                            {% elif jc.status == 'Deleted' %}bg-danger
                                             {% else %}bg-secondary{% endif %}">
                                             {{ jc.status }}
                                         </span>
                                     </td>
-                                    <!-- New Type column with badge -->
                                     <td>
-                                        <span class="badge {% if is_legal %}bg-info{% else %}bg-secondary{% endif %}">
+                                        <span class="badge {% if is_legal %}bg-primary{% else %}bg-secondary{% endif %}">
                                             {{ "Legal" if is_legal else "Maint" }}
                                         </span>
                                     </td>
-                                    <td>{{ jc.due_date.strftime('%Y-%m-%d') if jc.due_date else 'Not Set' }}</td>
+                                    <td>
+                                        {{ jc.due_date.strftime('%Y-%m-%d') if jc.due_date else 'Not Set' }}
+                                        {% if is_overdue %}
+                                            <span class="badge bg-danger ms-1">Overdue</span>
+                                        {% endif %}
+                                    </td>
                                     <td>{{ jc.technician or 'Unassigned' }}</td>
                                     <td>
-                                        <div class="btn-group" role="group">
-                                            {% if jc.status != 'Done' %}
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            {% if jc.status != 'Done' and jc.status != 'Deleted' %}
                                                 <a href="{{ url_for('planned_maintenance.complete_job_card', id=jc.id) }}" 
-                                                   class="btn btn-sm btn-outline-success">
+                                                   class="btn btn-outline-success" title="Complete">
                                                     <i class="bi bi-check-lg"></i>
                                                 </a>
                                             {% endif %}
                                             <a href="{{ url_for('planned_maintenance.job_card_detail', id=jc.id) }}" 
-                                               class="btn btn-sm btn-outline-primary">
+                                               class="btn btn-outline-primary" title="View">
                                                 <i class="bi bi-eye"></i>
                                             </a>
-                                            {% if jc.status != 'Done' %}
+                                            {% if jc.status != 'Done' and jc.status != 'Deleted' %}
                                                 <a href="{{ url_for('planned_maintenance.edit_job_card', id=jc.id) }}" 
-                                                   class="btn btn-sm btn-outline-secondary">
+                                                   class="btn btn-outline-secondary" title="Edit">
                                                     <i class="bi bi-pencil"></i>
                                                 </a>
                                             {% endif %}
                                             {% if jc.whatsapp_share_url %}
                                                 <a href="{{ jc.whatsapp_share_url }}" 
-                                                   class="btn btn-sm btn-outline-success" target="_blank">
+                                                   class="btn btn-outline-success" target="_blank" title="Share via WhatsApp">
                                                     <i class="bi bi-whatsapp"></i>
                                                 </a>
                                             {% endif %}
-                                            <!-- Only show delete for non-Done jobs -->
                                             {% if jc.status == 'To Do' %}
-                                                <button type="button" class="btn btn-sm btn-outline-danger"
+                                                <button type="button" class="btn btn-outline-danger" title="Delete"
                                                         data-bs-toggle="modal" data-bs-target="#deleteJobCardModal-{{ jc.id }}">
                                                     <i class="bi bi-trash"></i>
                                                 </button>
                                                                                             
-                                                <!-- Delete Confirmation Modal -->
                                                 <div class="modal fade" id="deleteJobCardModal-{{ jc.id }}" tabindex="-1" 
                                                      aria-labelledby="deleteJobCardModalLabel-{{ jc.id }}" aria-hidden="true">
                                                     <div class="modal-dialog">
                                                         <div class="modal-content">
                                                             <div class="modal-header">
-                                                                <h5 class="modal-title" id="deleteJobCardModalLabel-{{ jc.id }}">Confirm Delete</h5>
+                                                                <h5 class="modal-title" id="deleteJobCardModalLabel-{{ jc.id }}">Confirm Delete Job Card</h5>
                                                                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                                                             </div>
-                                                            <div class="modal-body">
-                                                                Are you sure you want to delete job card #{{ jc.job_number }}?
-                                                            </div>
-                                                            <div class="modal-footer">
-                                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                                                <form action="{{ url_for('planned_maintenance.delete_job_card', id=jc.id) }}" method="POST">
-                                                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
-                                                                    <button type="submit" class="btn btn-danger">Delete</button>
-                                                                </form>
-                                                            </div>
+                                                            <form action="{{ url_for('planned_maintenance.delete_job_card', id=jc.id) }}" method="POST">
+                                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                                                                <div class="modal-body">
+                                                                    <p>Are you sure you want to delete job card <strong>#{{ jc.job_number }}</strong>?</p>
+                                                                    <p>Task: {{ jc.description }}</p>
+                                                                    <div class="mb-3">
+                                                                        <label for="delete_reason_{{ jc.id }}" class="form-label">Reason for Deletion (Required):</label>
+                                                                        <textarea class="form-control" id="delete_reason_{{ jc.id }}" name="delete_reason" rows="2" required></textarea>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="modal-footer">
+                                                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                                                    <button type="submit" class="btn btn-danger">Delete Job Card</button>
+                                                                </div>
+                                                            </form>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -184,25 +223,23 @@
                     </table>
                 </div>
                 
-                <!-- Pagination -->
                 {% if pagination.pages > 1 %}
                     <div class="d-flex justify-content-center mt-3">
                         <nav aria-label="Job Card Pages">
-                            <ul class="pagination">
-                                <!-- Previous Button -->
+                            <ul class="pagination pagination-sm">
                                 <li class="page-item {% if pagination.page == 1 %}disabled{% endif %}">
                                     <a class="page-link" href="{{ url_for('planned_maintenance.job_card_list', page=pagination.prev_num, 
                                                                           start_date=current_filters.start_date,
                                                                           end_date=current_filters.end_date,
                                                                           equipment_search=current_filters.equipment_search,
                                                                           status=current_filters.status,
-                                                                          job_type=current_filters.job_type) }}" 
+                                                                          job_type=current_filters.job_type,
+                                                                          equipment_type=current_filters.equipment_type,
+                                                                          technician_filter=current_filters.technician_filter) }}" 
                                        aria-label="Previous">
-                                        <span aria-hidden="true">&laquo;</span>
+                                        <span aria-hidden="true">«</span>
                                     </a>
                                 </li>
-                                
-                                <!-- Page Numbers -->
                                 {% for page_num in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
                                     {% if page_num %}
                                         <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
@@ -211,27 +248,27 @@
                                                                               end_date=current_filters.end_date,
                                                                               equipment_search=current_filters.equipment_search,
                                                                               status=current_filters.status,
-                                                                              job_type=current_filters.job_type) }}">
+                                                                              job_type=current_filters.job_type,
+                                                                              equipment_type=current_filters.equipment_type,
+                                                                              technician_filter=current_filters.technician_filter) }}">
                                                 {{ page_num }}
                                             </a>
                                         </li>
                                     {% else %}
-                                        <li class="page-item disabled">
-                                            <span class="page-link">...</span>
-                                        </li>
+                                        <li class="page-item disabled"><span class="page-link">...</span></li>
                                     {% endif %}
                                 {% endfor %}
-                                
-                                <!-- Next Button -->
                                 <li class="page-item {% if pagination.page == pagination.pages %}disabled{% endif %}">
                                     <a class="page-link" href="{{ url_for('planned_maintenance.job_card_list', page=pagination.next_num,
                                                                           start_date=current_filters.start_date,
                                                                           end_date=current_filters.end_date,
                                                                           equipment_search=current_filters.equipment_search,
                                                                           status=current_filters.status,
-                                                                          job_type=current_filters.job_type) }}" 
+                                                                          job_type=current_filters.job_type,
+                                                                          equipment_type=current_filters.equipment_type,
+                                                                          technician_filter=current_filters.technician_filter) }}" 
                                        aria-label="Next">
-                                        <span aria-hidden="true">&raquo;</span>
+                                        <span aria-hidden="true">»</span>
                                     </a>
                                 </li>
                             </ul>
@@ -244,18 +281,15 @@
                 </div>
             {% endif %}
         </div>
-        <div class="card-footer">
-            <small class="text-muted">
-                {% if pagination %}
-                    Showing {{ job_cards|length }} of {{ pagination.total }} job cards.
-                {% endif %}
-                Job numbers starting with "LC-" are Legal Compliance tasks, while "JC-" are regular Maintenance tasks.
+        <div class="card-footer text-muted">
+            <small>
+                Job numbers starting with "LC-" are Legal Compliance tasks, "JC-" are regular Maintenance.
+                Rows highlighted in <span class="text-danger fw-bold">red</span> are overdue.
             </small>
         </div>
     </div>
 </div>
 
-<!-- Include modals for creating new job cards -->
-{% include 'pm_modals.html' %}
+{% include 'pm_modals.html' %} {# Assuming this contains the #newJobCardModal #}
 
 {% endblock %}
