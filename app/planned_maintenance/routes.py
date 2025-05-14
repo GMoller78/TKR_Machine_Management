@@ -1578,7 +1578,7 @@ def new_job_card_from_task(task_id):
         existing_open_jc = JobCard.query.filter(
             JobCard.equipment_id == task.equipment_id,
             JobCard.description == task.description,
-            JobCard.status != 'Done'
+            JobCard.status.notin_(['Done', 'Deleted'])
         ).first()
 
         if existing_open_jc:
