@@ -47,6 +47,7 @@ logging.basicConfig(level=logging.DEBUG,
 DUE_SOON_ESTIMATED_DAYS_THRESHOLD = 7
 EQUIPMENT_STATUSES = ['Operational', 'At OEM', 'Sold', 'Broken Down', 'Under Repair', 'Awaiting Spares']
 JOB_CARD_STATUSES = ['To Do', 'In Progress', 'Done', 'Deleted']
+MAX_REASONABLE_DAILY_USAGE_INCREASE = 500
 
 def generate_whatsapp_share_url(job_card):
     """Generates a WhatsApp share URL for a given job card."""
@@ -2880,52 +2881,129 @@ def edit_task(id):
 # ==============================================================================
 @bp.route('/usage/add', methods=['POST'])
 def add_usage():
-    """Adds a usage log entry."""
+    """Adds a usage log entry with enhanced validation."""
     if request.method == 'POST':
         try:
             equipment_id = request.form.get('equipment_id', type=int)
             usage_value_str = request.form.get('usage_value')
             log_date_str = request.form.get('log_date') # Optional, defaults to now
 
+            # Basic form data validation
             if not equipment_id or not usage_value_str:
                 flash("Equipment and Usage Value are required.", "warning")
                 return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
             try:
                 usage_value = float(usage_value_str)
+                if usage_value < 0:
+                    flash("Usage Value cannot be negative.", "warning")
+                    return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
             except ValueError:
-                 flash("Invalid Usage Value.", "warning")
+                 flash("Invalid Usage Value. Please enter a number.", "warning")
                  return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
+            # Parse log_date_str to a timezone-aware UTC datetime object
             log_date_dt = datetime.now(timezone.utc) # Default to now (UTC)
             if log_date_str:
                 try:
-                    # Parse naive datetime from input
                     parsed_naive = parse_datetime(log_date_str)
-                    # Assume it represents UTC and make it aware
-                    log_date_dt = parsed_naive.replace(tzinfo=timezone.utc)
-                    logging.debug(f"Parsed usage log_date string '{log_date_str}' to naive {parsed_naive}, assumed UTC: {log_date_dt} ({log_date_dt.tzinfo})")
+                    log_date_dt = parsed_naive.replace(tzinfo=timezone.utc) # Assume naive input is UTC
+                    logging.debug(f"Parsed usage log_date string '{log_date_str}' to UTC: {log_date_dt}")
                 except ValueError:
-                    flash("Invalid Log Date format, using current UTC time.", "info")
+                    flash("Invalid Log Date format. Using current UTC time.", "info")
                 except Exception as parse_err:
                     logging.error(f"Error parsing usage log_date '{log_date_str}': {parse_err}", exc_info=True)
                     flash(f"Error parsing log date: {parse_err}. Using current UTC time.", "warning")
+            
+            # Ensure equipment exists
+            equipment = Equipment.query.get(equipment_id)
+            if not equipment:
+                flash(f"Equipment with ID {equipment_id} not found.", "danger")
+                return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
-            usage = UsageLog(equipment_id=equipment_id, usage_value=usage_value, log_date=log_date_dt)
-            db.session.add(usage)
+            # --- Validation 1: Prevent duplicate records (same machine, same datetime) ---
+            existing_log_at_same_time = UsageLog.query.filter_by(
+                equipment_id=equipment_id, 
+                log_date=log_date_dt
+            ).first()
+            if existing_log_at_same_time:
+                flash(f"A usage log for {equipment.code} already exists at {log_date_dt.strftime('%Y-%m-%d %H:%M:%S %Z')}.", "warning")
+                return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
+
+            # --- Fetch previous and next logs for chronological validation ---
+            # Previous log: latest log strictly before the new log's datetime
+            previous_log = UsageLog.query.filter(
+                UsageLog.equipment_id == equipment_id,
+                UsageLog.log_date < log_date_dt
+            ).order_by(UsageLog.log_date.desc()).first()
+
+            # Next log: earliest log strictly after the new log's datetime
+            next_log = UsageLog.query.filter(
+                UsageLog.equipment_id == equipment_id,
+                UsageLog.log_date > log_date_dt
+            ).order_by(UsageLog.log_date.asc()).first()
+
+            # --- Validation 2a: Usage cannot be less than previously recorded ---
+            if previous_log and usage_value < previous_log.usage_value:
+                prev_log_time_str = previous_log.log_date.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+                flash(f"Usage value ({usage_value:.2f}) cannot be less than the previous log's value "
+                      f"({previous_log.usage_value:.2f} recorded on {prev_log_time_str}).", "warning")
+                return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
+
+            # --- Validation 2b: Usage cannot be more than a subsequent existing log ---
+            if next_log and usage_value > next_log.usage_value:
+                next_log_time_str = next_log.log_date.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+                flash(f"Usage value ({usage_value:.2f}) cannot be greater than the next log's value "
+                      f"({next_log.usage_value:.2f} recorded on {next_log_time_str}). "
+                      f"You might be trying to insert a log out of sequence.", "warning")
+                return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
+
+            # --- Validation 3: Limit unreasonable usage increase ---
+            if previous_log:
+                usage_difference = usage_value - previous_log.usage_value
+                # Ensure previous_log.log_date is timezone-aware UTC for accurate calculations
+                prev_log_date_utc = previous_log.log_date
+                if prev_log_date_utc.tzinfo is None: # Should not happen if model default is used
+                    prev_log_date_utc = prev_log_date_utc.replace(tzinfo=timezone.utc)
+                else:
+                    prev_log_date_utc = prev_log_date_utc.astimezone(timezone.utc)
+
+                # Calculate calendar days spanned
+                calendar_days_spanned = (log_date_dt.date() - prev_log_date_utc.date()).days
+                
+                current_max_increase_threshold = MAX_REASONABLE_DAILY_USAGE_INCREASE
+                # Future enhancement: current_max_increase_threshold could be set based on equipment.usage_unit
+                
+                if calendar_days_spanned == 0: # Same calendar day
+                    if usage_difference > current_max_increase_threshold:
+                        flash(f"Usage increase of {usage_difference:.2f} on the same day ({log_date_dt.strftime('%Y-%m-%d')}) "
+                              f"is too high. Max allowed daily increase is {current_max_increase_threshold:.2f}.", "warning")
+                        return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
+                elif calendar_days_spanned > 0: # Spans one or more full calendar days
+                    max_allowed_increase_for_period = current_max_increase_threshold * calendar_days_spanned
+                    if usage_difference > max_allowed_increase_for_period:
+                        flash(f"Usage increase of {usage_difference:.2f} over {calendar_days_spanned} day(s) "
+                              f"(from {prev_log_date_utc.strftime('%Y-%m-%d')} to {log_date_dt.strftime('%Y-%m-%d')}) "
+                              f"is too high. Max allowed for this period is {max_allowed_increase_for_period:.2f} "
+                              f"(based on {current_max_increase_threshold:.2f}/day).", "warning")
+                        return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
+                # No 'else' needed for calendar_days_spanned < 0, as previous_log query ensures it's earlier.
+
+            # All validations passed, create and save the log
+            new_usage_log = UsageLog(equipment_id=equipment_id, usage_value=usage_value, log_date=log_date_dt)
+            db.session.add(new_usage_log)
             db.session.commit()
             flash("Usage log added successfully.", "success")
 
         except Exception as e:
             db.session.rollback()
-            logging.error(f"Error adding usage log: {e}", exc_info=True) # Log error details
-            flash(f"Error adding usage log: {e}", "danger")
+            logging.error(f"Error adding usage log: {e}", exc_info=True)
+            flash(f"An unexpected error occurred while adding usage log: {e}", "danger")
 
         return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
-     # If accessed via GET, just redirect away
+    # If accessed via GET, just redirect away
     return redirect(url_for('planned_maintenance.dashboard'))
-
 # ==============================================================================
 # === Create Job Card From Task ===
 # ==============================================================================
