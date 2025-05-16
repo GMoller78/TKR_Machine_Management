@@ -3611,9 +3611,10 @@ def get_logs_for_cell():
 @bp.route('/checklist/edit/<int:log_id>', methods=['GET'])
 def edit_checklist_log_form(log_id):
     log = Checklist.query.get_or_404(log_id)
+    form = ChecklistEditForm(obj=log)
     try:
         logging.info(f"Fetching edit form for ChecklistLog ID: {log.id}")
-        return render_template('edit_checklist_log.html', log=log)
+        return render_template('_checklist_edit_form_partial.html', form=form, log_id=log.id)
     except Exception as e:
         logging.error(f"Error rendering edit form for checklist log {log_id}: {e}", exc_info=True)
         return jsonify({'error': 'Server error rendering edit form'}), 500
@@ -3644,9 +3645,10 @@ def update_checklist_log(log_id):
 @bp.route('/usage/edit/<int:log_id>', methods=['GET'])
 def edit_usage_log_form(log_id):
     log = UsageLog.query.get_or_404(log_id)
+    form = UsageLogEditForm(obj=log)
     try:
         logging.info(f"Fetching edit form for UsageLog ID: {log.id}")
-        return render_template('edit_usage_log.html', log=log)
+        return render_template('_usage_log_edit_form_partial.html', form=form, log_id=log.id)
     except Exception as e:
         logging.error(f"Error rendering edit form for usage log {log_id}: {e}", exc_info=True)
         return jsonify({'error': 'Server error rendering edit form'}), 500

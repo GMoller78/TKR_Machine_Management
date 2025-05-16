@@ -1,5 +1,5 @@
 {# Renders only the form fields for usage log editing, loaded via AJAX #}
-<form id="usageLogEditForm" action="{{ url_for('planned_maintenance.edit_usage_log', log_id=log_id) }}" method="POST">
+<form id="usageLogEditForm" action="{{ url_for('planned_maintenance.update_usage_log', log_id=log_id) }}" method="POST">
     {{ form.hidden_tag() }} {# CSRF token #}
 
     <div class="mb-3">

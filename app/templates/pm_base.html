@@ -12,6 +12,13 @@
     {% block styles %}
 
     {% endblock styles %}
+    <script>
+        // Pass the application root path (prefix) to JavaScript
+        // request.script_root will be '/tkr' if app is at example.com/tkr
+        // request.script_root will be '' (empty string) if app is at example.com/
+        // Using |e or |tojson ensures the string is safely embedded in JavaScript.
+        const SCRIPT_NAME = {{ request.script_root | default('', true) | tojson }};
+    </script>
   </head>
   <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
@@ -120,18 +127,19 @@
     <script>
         // Standard escapeHtml function
         function escapeHtml(unsafe) {
-            if (typeof unsafe !== 'string') {
-                unsafe = String(unsafe);
-            }
-            let safe = unsafe;
-            safe = safe.replace(/&/g, "&amp;"); // Escape ampersand first
-            safe = safe.replace(/</g, "&lt;");
-            safe = safe.replace(/>/g, "&gt;");
-            safe = safe.replace(/"/g, "&quot;"); // Correctly escape double quotes
-            safe = safe.replace(/'/g, "&#39;");  // Escape single quotes
-            return safe;
+    // Add these two lines:
+        if (typeof unsafe !== 'string') {
+            unsafe = String(unsafe); // Convert non-strings (like numbers) to strings
         }
 
+        // Then the rest of your function:
+        return unsafe
+                      .replace(/&/g, "&amp;")
+                      .replace(/</g, "&lt;")
+                      .replace(/>/g, "&gt;")
+                      .replace(/"/g, "&quot;")
+                      .replace(/'/g, "&#039;");
+    }
         // Function to refresh log details in the generic modal
         function refreshLogDetailsInModal() {
             const modal = document.getElementById('editLogModal');
@@ -148,9 +156,11 @@
 
             console.log('Refreshing log details for:', { logType, equipmentId, logDate });
 
-            const fetchUrl = `/planned-maintenance/logs/get_for_cell?log_type=${logType}&equipment_id=${equipmentId}&log_date=${logDate}`;
-            console.log("Fetching URL:", fetchUrl);
-
+            // MODIFIED LINE: Prepend SCRIPT_NAME to the URL
+            // SCRIPT_NAME will be '/tkr' or '' (empty string if at root)
+            const fetchUrl = SCRIPT_NAME + '/planned-maintenance/logs/get_for_cell?log_type=' + logType + '&equipment_id=' + equipmentId + '&log_date=' + logDate;
+            console.log("Fetching URL:", fetchUrl); // Check console: this should now include /tkr if applicable
+            
             fetch(fetchUrl, {
                 method: 'GET',
                 headers: {
@@ -182,9 +192,11 @@
                 } else {
                     data.logs.forEach(log => {
                         // Using escapeHtml for all string data being injected into attributes or content
+                        // IMPORTANT: Ensure log.edit_url and log.delete_url from the server ALREADY include the /tkr prefix
+                        // (they should, if generated with url_for() in Python backend)
                         const safeEditUrl = escapeHtml(log.edit_url || '');
                         const safeDeleteUrl = escapeHtml(log.delete_url || '');
-                        const safeLogId = escapeHtml(log.id); // log.id is likely a number, escapeHtml will convert to string
+                        const safeLogId = escapeHtml(log.id);
                         const safeLogTimestamp = escapeHtml(log.timestamp || '');
 
                         if (data.log_type === 'checklist') {
@@ -212,7 +224,7 @@
                                 </div>
                             `;
                         } else if (data.log_type === 'usage') {
-                            const safeLogValue = escapeHtml(log.value); // log.value is likely a number
+                            const safeLogValue = escapeHtml(log.value);
                             html += `
                                 <div class="list-group-item">
                                     <div class="d-flex w-100 justify-content-between align-items-center">
@@ -281,12 +293,12 @@
                 const editButton = event.target.closest('.edit-log-item-btn');
                 if (editButton) {
                     event.preventDefault();
-                    const formUrl = editButton.dataset.formUrl;
+                    const formUrl = editButton.dataset.formUrl; // This URL should come prefixed from the server
                     const logId = editButton.dataset.logId;
 
                     console.log('Edit log item button clicked:', { formUrl, logId });
 
-                    fetch(formUrl, {
+                    fetch(formUrl, { // Uses formUrl which should be correctly prefixed
                         method: 'GET',
                         headers: {
                             'X-Requested-With': 'XMLHttpRequest'
@@ -308,11 +320,12 @@
 
                         const form = modalBody.querySelector('form');
                         if (form) {
+                            // The form.action attribute in the fetched HTML should also be correctly prefixed by the server
                             form.addEventListener('submit', function(e) {
                                 e.preventDefault();
                                 const formData = new FormData(form);
 
-                                fetch(form.action, {
+                                fetch(form.action, { // Uses form.action which should be correctly prefixed
                                     method: 'POST',
                                     body: formData,
                                     headers: {
@@ -351,10 +364,10 @@
                 const deleteButton = event.target.closest('.delete-log-item-btn');
                 if (deleteButton) {
                     event.preventDefault();
-                    const deleteUrl = deleteButton.dataset.deleteUrl;
+                    const deleteUrl = deleteButton.dataset.deleteUrl; // This URL should come prefixed from the server
 
                     if (confirm('Are you sure you want to delete this log entry?')) {
-                        fetch(deleteUrl, {
+                        fetch(deleteUrl, { // Uses deleteUrl which should be correctly prefixed
                             method: 'POST', 
                             headers: {
                                 'Content-Type': 'application/json', 

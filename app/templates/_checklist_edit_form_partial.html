@@ -1,5 +1,5 @@
 {# Renders only the form fields for checklist editing, loaded via AJAX #}
-<form id="checklistEditForm" action="{{ url_for('planned_maintenance.edit_checklist_log', log_id=log_id) }}" method="POST">
+<form id="checklistEditForm" action="{{ url_for('planned_maintenance.update_checklist_log', log_id=log_id) }}" method="POST">
     {{ form.hidden_tag() }} {# Important for CSRF token #}
 
     <div class="mb-3">
