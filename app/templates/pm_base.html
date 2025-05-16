@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="en">
   <head>
@@ -114,161 +113,277 @@
   </div>
     {# -------- End Generic Log Edit Modal -------- #}
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
     {# Include jQuery if needed by other scripts, Bootstrap 5 doesn't require it #}
     {# <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script> #}
-
-    {# -------- Scripts Block -------- #}
     {% block scripts %}
-        {# Page-specific scripts will be inserted here by child templates using super() #}
+    <script>
+        // Standard escapeHtml function
+        function escapeHtml(unsafe) {
+            if (typeof unsafe !== 'string') {
+                unsafe = String(unsafe);
+            }
+            let safe = unsafe;
+            safe = safe.replace(/&/g, "&amp;"); // Escape ampersand first
+            safe = safe.replace(/</g, "&lt;");
+            safe = safe.replace(/>/g, "&gt;");
+            safe = safe.replace(/"/g, "&quot;"); // Correctly escape double quotes
+            safe = safe.replace(/'/g, "&#39;");  // Escape single quotes
+            return safe;
+        }
 
-        {# Script for Tooltips and Edit Modal #}
-        <script>
-          // Pass the base URL from Flask to JavaScript
-          const BASE_URL = "{{ base_url|default('', true) }}"; // Fallback to empty string if not provided
-  
-          const editLogModal = document.getElementById('editLogModal');
-          const modalTitle = editLogModal.querySelector('.modal-title');
-          const modalBody = editLogModal.querySelector('.modal-body');
-          const modalInstance = new bootstrap.Modal(editLogModal);
-  
-          // Escape HTML to prevent XSS
-          function escapeHtml(unsafe) {
-              return unsafe
-                  .replace(/&/g, "&amp;")
-                  .replace(/</g, "&lt;")
-                  .replace(/>/g, "&gt;")
-                  .replace(/"/g, "&quot;")
-                  .replace(/'/g, "&#039;");
-          }
-  
-          // Handle click on edit log trigger
-          document.body.addEventListener('click', function(event) {
-              const trigger = event.target.closest('.edit-log-trigger');
-              if (!trigger) return;
-              event.preventDefault();
-  
-              const logType = trigger.dataset.logType;
-              const equipmentId = trigger.dataset.equipmentId;
-              const equipmentCode = trigger.dataset.equipmentCode;
-              const logDate = trigger.dataset.logDate;
-  
-              modalTitle.textContent = `Logs for ${equipmentCode} on ${logDate}`;
-              modalBody.innerHTML = '<div class="text-center p-3"><div class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading...</span></div> Fetching logs...</div>';
-              modalInstance.show();
-  
-              // Construct the URL using BASE_URL
-              const fetchUrl = `${BASE_URL}/logs/get_for_cell?log_type=${logType}&equipment_id=${equipmentId}&log_date=${logDate}`;
-              fetch(fetchUrl)
-                  .then(response => {
-                      if (!response.ok) {
-                          throw new Error(`HTTP error! status: ${response.status}, message: ${response.statusText}`);
-                      }
-                      return response.json();
-                  })
-                  .then(data => {
-                      if (data.logs.length === 0) {
-                          modalBody.innerHTML = '<div class="alert alert-info m-3">No logs found for this date.</div>';
-                          return;
-                      }
-                      let html = '<div class="list-group">';
-                      for (const log of data.logs) {
-                          const timestamp = escapeHtml(log.timestamp);
-                          html += `
-                              <div class="list-group-item">
-                                  <div class="d-flex w-100 justify-content-between">
-                                      <h6 class="mb-1">Log at ${timestamp}</h6>
-                                      <button class="btn btn-sm btn-outline-primary edit-log-item-btn"
-                                              data-form-url="${log.edit_url}" 
-                                              data-log-id="${log.id}">
-                                          <i class="fas fa-edit"></i> Edit
-                                      </button>
-                                  </div>`;
-                          if (logType === 'checklist') {
-                              html += `
-                                  <p class="mb-1"><strong>Status:</strong> ${escapeHtml(log.status)}</p>
-                                  <p class="mb-1"><strong>Issues:</strong> ${escapeHtml(log.issues)}</p>
-                                  <p class="mb-0"><strong>Operator:</strong> ${escapeHtml(log.operator)}</p>
-                              `;
-                            } else if (logType === 'usage') {
-                              // --- Execute JavaScript logic FIRST ---
-                              const usageValue = log.value;
-                              const usageValueDisplay = (usageValue != null)
-                                  ? escapeHtml(usageValue.toString()) + ' Hours/KM'
-                                  : '<span class="text-muted">N/A</span>'; // Calculate the display string
+        // Function to refresh log details in the generic modal
+        function refreshLogDetailsInModal() {
+            const modal = document.getElementById('editLogModal');
+            const logType = modal.dataset.logType;
+            const equipmentId = modal.dataset.equipmentId;
+            const logDate = modal.dataset.logDate;
 
-                              // --- THEN add the resulting HTML paragraph to the 'html' variable ---
-                              html += `
-                                  <p class="mb-0"><strong>Usage Value:</strong> ${usageValueDisplay}</p>
-                              `; // Embed the calculated display string
+            if (!logType || !equipmentId || !logDate) {
+                console.error('Missing modal data attributes for refresh:', { logType, equipmentId, logDate });
+                const modalBody = document.getElementById('editLogModalBody');
+                if (modalBody) modalBody.innerHTML = '<p class="text-danger">Error: Insufficient data to load log details.</p>';
+                return;
+            }
+
+            console.log('Refreshing log details for:', { logType, equipmentId, logDate });
+
+            const fetchUrl = `/planned-maintenance/logs/get_for_cell?log_type=${logType}&equipment_id=${equipmentId}&log_date=${logDate}`;
+            console.log("Fetching URL:", fetchUrl);
+
+            fetch(fetchUrl, {
+                method: 'GET',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    console.error("Fetch response not OK:", response);
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                console.log('Log data received:', data);
+
+                const modalTitle = document.getElementById('editLogModalLabel');
+                modalTitle.textContent = data.modal_title;
+
+                const modalBody = document.getElementById('editLogModalBody');
+                let html = '<div class="list-group">';
+                
+                if (data.logs.length === 0) {
+                    html += '<p class="text-muted">No logs found for this date.</p>';
+                } else {
+                    data.logs.forEach(log => {
+                        // Using escapeHtml for all string data being injected into attributes or content
+                        const safeEditUrl = escapeHtml(log.edit_url || '');
+                        const safeDeleteUrl = escapeHtml(log.delete_url || '');
+                        const safeLogId = escapeHtml(log.id); // log.id is likely a number, escapeHtml will convert to string
+                        const safeLogTimestamp = escapeHtml(log.timestamp || '');
+
+                        if (data.log_type === 'checklist') {
+                            html += `
+                                <div class="list-group-item">
+                                    <div class="d-flex w-100 justify-content-between align-items-center">
+                                        <h6 class="mb-0">Log at ${escapeHtml(log.timestamp || '')}</h6>
+                                        <div>
+                                            <button class="btn btn-sm btn-outline-primary edit-log-item-btn me-1"
+                                                    data-form-url="${safeEditUrl}"
+                                                    data-log-id="${safeLogId}">
+                                                <i class="fas fa-edit"></i> Edit
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger delete-log-item-btn"
+                                                    data-delete-url="${safeDeleteUrl}"
+                                                    data-log-id="${safeLogId}"
+                                                    data-log-timestamp="${safeLogTimestamp}">
+                                                <i class="fas fa-trash-alt"></i> Delete
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <p class="mb-1 mt-1"><strong>Status:</strong> ${escapeHtml(log.status || '')}</p>
+                                    <p class="mb-1"><strong>Issues:</strong> ${escapeHtml(log.issues || '')}</p>
+                                    <p class="mb-0"><strong>Operator:</strong> ${escapeHtml(log.operator || '')}</p>
+                                </div>
+                            `;
+                        } else if (data.log_type === 'usage') {
+                            const safeLogValue = escapeHtml(log.value); // log.value is likely a number
+                            html += `
+                                <div class="list-group-item">
+                                    <div class="d-flex w-100 justify-content-between align-items-center">
+                                        <h6 class="mb-0">Log at ${escapeHtml(log.timestamp || '')}</h6>
+                                        <div>
+                                            <button class="btn btn-sm btn-outline-primary edit-log-item-btn me-1"
+                                                    data-form-url="${safeEditUrl}"
+                                                    data-log-id="${safeLogId}">
+                                                <i class="fas fa-edit"></i> Edit
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger delete-log-item-btn"
+                                                    data-delete-url="${safeDeleteUrl}"
+                                                    data-log-id="${safeLogId}"
+                                                    data-log-value="${safeLogValue}"
+                                                    data-log-timestamp="${safeLogTimestamp}">
+                                                <i class="fas fa-trash-alt"></i> Delete
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <p class="mb-0 mt-1"><strong>Usage Value:</strong> ${escapeHtml(log.value)} Hours/KM</p>
+                                </div>
+                            `;
+                        }
+                    });
+                }
+                html += '</div>';
+                modalBody.innerHTML = html;
+                console.log('Modal body updated with HTML for log list.');
+            })
+            .catch(error => {
+                console.error('Error refreshing log details:', error);
+                const modalBody = document.getElementById('editLogModalBody');
+                modalBody.innerHTML = '<p class="text-danger">Error loading log details. Please try again.</p>';
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            document.addEventListener('click', function(event) {
+                const triggerLink = event.target.closest('.edit-log-trigger');
+                if (triggerLink) {
+                    event.preventDefault(); 
+                    const modalElement = document.getElementById('editLogModal');
+                    if (!modalElement) {
+                        console.error('Modal element #editLogModal not found!');
+                        return;
+                    }
+                    
+                    modalElement.dataset.logType = triggerLink.dataset.logType;
+                    modalElement.dataset.equipmentId = triggerLink.dataset.equipmentId;
+                    modalElement.dataset.logDate = triggerLink.dataset.logDate;
+                    
+                    console.log('Edit log trigger clicked. Modal data set:', { 
+                        logType: modalElement.dataset.logType, 
+                        equipmentId: modalElement.dataset.equipmentId, 
+                        logDate: modalElement.dataset.logDate 
+                    });
+
+                    refreshLogDetailsInModal(); 
+
+                    const bsModalInstance = bootstrap.Modal.getInstance(modalElement) || new bootstrap.Modal(modalElement);
+                    bsModalInstance.show();
+                }
+            });
+
+            document.addEventListener('click', function(event) {
+                const editButton = event.target.closest('.edit-log-item-btn');
+                if (editButton) {
+                    event.preventDefault();
+                    const formUrl = editButton.dataset.formUrl;
+                    const logId = editButton.dataset.logId;
+
+                    console.log('Edit log item button clicked:', { formUrl, logId });
+
+                    fetch(formUrl, {
+                        method: 'GET',
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        return response.text();
+                    })
+                    .then(html => {
+                        console.log('Edit form HTML received.');
+                        const modalBody = document.getElementById('editLogModalBody'); 
+                        modalBody.innerHTML = html;
+
+                        const modalTitle = document.getElementById('editLogModalLabel'); 
+                        modalTitle.textContent = `Edit Log Entry (ID: ${logId})`;
+
+                        const form = modalBody.querySelector('form');
+                        if (form) {
+                            form.addEventListener('submit', function(e) {
+                                e.preventDefault();
+                                const formData = new FormData(form);
+
+                                fetch(form.action, {
+                                    method: 'POST',
+                                    body: formData,
+                                    headers: {
+                                        'X-Requested-With': 'XMLHttpRequest'
+                                    }
+                                })
+                                .then(response => response.json())
+                                .then(data => {
+                                    if (data.success) {
+                                        console.log(data.message);
+                                        refreshLogDetailsInModal(); 
+                                    } else {
+                                        alert('Error: ' + (data.error || 'Unknown error during update.'));
+                                        if (data.errors) {
+                                            console.error('Validation errors:', data.errors);
+                                        }
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('Error submitting edit form:', error);
+                                    alert('An error occurred while updating the log.');
+                                });
+                            });
+                        } else {
+                            console.error('No form found in edit modal content.');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error loading edit form:', error);
+                        alert('Error loading edit form. Please check the console for details.');
+                    });
+                }
+            });
+
+            document.addEventListener('click', function(event) {
+                const deleteButton = event.target.closest('.delete-log-item-btn');
+                if (deleteButton) {
+                    event.preventDefault();
+                    const deleteUrl = deleteButton.dataset.deleteUrl;
+
+                    if (confirm('Are you sure you want to delete this log entry?')) {
+                        fetch(deleteUrl, {
+                            method: 'POST', 
+                            headers: {
+                                'Content-Type': 'application/json', 
+                                'X-Requested-With': 'XMLHttpRequest'
                             }
-                          html += '</div>';
-                      }
-                      html += '</div>';
-                      modalBody.innerHTML = html;
-                  })
-                  .catch(error => {
-                      console.error('Error fetching logs:', error);
-                      modalBody.innerHTML = `<div class="alert alert-danger m-3">Could not fetch log details. ${error.message}</div>`;
-                  });
-          });
-  
-          // Handle click on "Edit" button inside the modal to load the edit form
-          editLogModal.addEventListener('click', function(event) {
-              if (event.target.classList.contains('edit-log-item-btn')) {
-                  event.preventDefault();
-                  const formUrl = event.target.dataset.formUrl;
-                  const logId = event.target.dataset.logId;
-  
-                  modalBody.innerHTML = '<div class="text-center p-3"><div class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading...</span></div> Loading edit form...</div>';
-                  modalTitle.textContent = `Edit Log Entry (ID: ${logId})`;
-  
-                  fetch(formUrl)
-                      .then(response => {
-                          if (!response.ok) {
-                              throw new Error(`HTTP error! status: ${response.status}, message: ${response.statusText}`);
-                          }
-                          return response.text();
-                      })
-                      .then(html => {
-                          modalBody.innerHTML = html;
-                          const firstInput = modalBody.querySelector('input, select, textarea');
-                          if (firstInput) firstInput.focus();
-                      })
-                      .catch(error => {
-                          console.error('Error loading edit form:', error);
-                          modalBody.innerHTML = `<div class="alert alert-danger m-3">Could not load edit form. ${error.message}</div>`;
-                      });
-              }
-          });
-  
-          // Handle form submission via AJAX
-          editLogModal.addEventListener('submit', function(event) {
-              const form = event.target.closest('#checklistEditForm, #usageLogEditForm');
-              if (!form) return;
-              event.preventDefault();
-  
-              const formData = new FormData(form);
-              fetch(form.action, {
-                  method: 'POST',
-                  body: formData
-              })
-              .then(response => response.json())
-              .then(data => {
-                  if (data.success) {
-                      modalBody.innerHTML = '<div class="alert alert-success m-3">Log updated successfully!</div>';
-                      setTimeout(() => modalInstance.hide(), 1500);
-                  } else {
-                      modalBody.innerHTML = `<div class="alert alert-danger m-3">${data.error}</div>`;
-                  }
-              })
-              .catch(error => {
-                  modalBody.innerHTML = `<div class="alert alert-danger m-3">Error: ${error.message}</div>`;
-              });
-          });
-      </script>
-    {% endblock scripts %}
-    {# --------------------------------- #}
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                console.log(data.message);
+                                refreshLogDetailsInModal(); 
+                            } else {
+                                alert('Error: ' + (data.error || 'Unknown error during deletion.'));
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Delete error:', error);
+                            alert('An error occurred while deleting the log.');
+                        });
+                    }
+                }
+            });
 
-  </body>
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            var tooltipList = tooltipTriggerList.map(function(tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+        });
+    </script>
+    {% endblock scripts %}
+
 </html>

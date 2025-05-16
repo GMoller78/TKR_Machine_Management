@@ -3058,30 +3058,57 @@ def generate_next_job_number(job_type='MAINT'):
 
 @bp.route('/checklist_logs', methods=['GET'])
 def checklist_logs():
-    """Displays checklist logs in a matrix: equipment vs. last 10 days (grouped by date)."""
+    """Displays checklist logs in a matrix: equipment vs. a 10-day period."""
     logging.debug("--- Request for Checklist Log 10-Day Matrix View ---")
     try:
-        # 1. Determine Date Range (Last 10 days including today)
         today = date.today()
-        start_date = today - timedelta(days=9)
-        dates_in_range = [start_date + timedelta(days=i) for i in range(10)] # List of date objects
-        logging.debug(f"Date range for checklist matrix: {start_date} to {today}")
+        start_date_str_param = request.args.get('start_date_str')
 
-        # 2. Fetch all Equipment
+        if start_date_str_param:
+            try:
+                current_start_date = date.fromisoformat(start_date_str_param)
+            except ValueError:
+                flash("Invalid start date format in URL. Showing default period.", "warning")
+                current_start_date = today - timedelta(days=9)
+        else:
+            # Default: 10 days ending today
+            current_start_date = today - timedelta(days=9)
+
+        current_end_date = current_start_date + timedelta(days=9)
+        dates_in_range = [current_start_date + timedelta(days=i) for i in range(10)]
+
+        # For navigation
+        prev_start_date = current_start_date - timedelta(days=10)
+        next_start_date_candidate = current_start_date + timedelta(days=10)
+
+        # Disable "Next" if the end of the next period would go beyond today
+        if (next_start_date_candidate + timedelta(days=9)) > today:
+            next_start_date = None
+        else:
+            next_start_date = next_start_date_candidate
+
+        logging.debug(f"Date range for checklist matrix: {current_start_date} to {current_end_date}")
+
         all_equipment = Equipment.query.order_by(Equipment.code).all()
+        # Pass empty data if no equipment, but still pass navigation dates
+        common_template_args = {
+            'current_start_date_str': current_start_date.strftime('%b %d, %Y'),
+            'current_end_date_str': current_end_date.strftime('%b %d, %Y'),
+            'prev_start_date_iso': prev_start_date.isoformat(),
+            'next_start_date_iso': next_start_date.isoformat() if next_start_date else None,
+            'today_iso': today.isoformat()
+        }
+
         if not all_equipment:
             flash("No equipment found.", "info")
             return render_template('pm_checklist_logs_matrix.html',
-                                   all_equipment=[],
-                                   dates_in_range=[],
-                                   processed_data={},
-                                   title='Checklist Log Matrix (Last 10 Days)')
+                                   all_equipment=[], dates_in_range=[], processed_data={},
+                                   title='Checklist Log Matrix', **common_template_args)
 
         equipment_ids = [eq.id for eq in all_equipment]
 
-        # 3. Fetch Relevant Logs within the date range
-        range_start_dt_utc = datetime.combine(start_date, time.min).replace(tzinfo=timezone.utc)
-        range_end_dt_utc = datetime.combine(today, time.max).replace(tzinfo=timezone.utc)
+        range_start_dt_utc = datetime.combine(current_start_date, time.min).replace(tzinfo=timezone.utc)
+        range_end_dt_utc = datetime.combine(current_end_date, time.max).replace(tzinfo=timezone.utc)
 
         relevant_logs_query = Checklist.query.filter(
             Checklist.equipment_id.in_(equipment_ids),
@@ -3091,162 +3118,168 @@ def checklist_logs():
             db.joinedload(Checklist.equipment_ref)
         ).order_by(
             Checklist.equipment_id,
-            Checklist.check_date # Order chronologically
+            Checklist.check_date
         )
-
         relevant_logs = relevant_logs_query.all()
         logging.debug(f"Found {len(relevant_logs)} checklist logs within the date range.")
 
-        # 4. Process logs into the desired structure: {eq_id: {date: {'count': N, 'latest_status': S, ..., 'logs': [...]}}}
         processed_data = defaultdict(lambda: defaultdict(lambda: {'count': 0, 'logs': [], 'latest_log': None}))
-
         for log in relevant_logs:
             eq_id = log.equipment_id
-
-            # Ensure log_date is treated as UTC before getting the date part
             log_date_utc = log.check_date
             if log_date_utc.tzinfo is None:
                 log_date_utc = log_date_utc.replace(tzinfo=timezone.utc)
             else:
                 log_date_utc = log_date_utc.astimezone(timezone.utc)
-
             log_date_only = log_date_utc.date()
 
-            if start_date <= log_date_only <= today:
+            if current_start_date <= log_date_only <= current_end_date:
                 cell_data = processed_data[eq_id][log_date_only]
                 cell_data['count'] += 1
-                # Store essential info for modal list
                 cell_data['logs'].append({
-                    'id': log.id,
-                    'status': log.status,
-                    'issues': log.issues or '',
+                    'id': log.id, 'status': log.status, 'issues': log.issues or '',
                     'operator': log.operator or 'N/A',
                     'timestamp': log_date_utc.strftime('%Y-%m-%d %H:%M UTC')
                 })
-                # Keep track of the latest log for display in the cell
-                # Since logs are ordered by date ascending, the last one processed for the day is the latest
                 cell_data['latest_log'] = {
-                    'status': log.status,
-                    'operator': log.operator or 'N/A',
+                    'status': log.status, 'operator': log.operator or 'N/A',
                     'comments': log.issues or "",
                     'full_timestamp_str': log_date_utc.strftime('%Y-%m-%d %H:%M UTC')
                  }
 
-
         logging.debug(f"Processed checklist data structure contains entries for {len(processed_data)} equipment.")
-        view_title = 'Checklist Log Matrix (Last 10 Days)'
-        base_url = url_for('planned_maintenance.dashboard', _external=False).rstrip('/')
-        # 5. Render the template
-        return render_template('pm_checklist_logs_matrix.html', 
-                          base_url=base_url, 
-                          title="Checklist Logs Matrix", 
-                          all_equipment=all_equipment, 
-                          dates_in_range=dates_in_range, 
-                          processed_data=processed_data)
+        view_title = f'Checklist Logs: {current_start_date.strftime("%b %d")} - {current_end_date.strftime("%b %d, %Y")}'
+        
+        return render_template('pm_checklist_logs_matrix.html',
+                          title=view_title,
+                          all_equipment=all_equipment,
+                          dates_in_range=dates_in_range,
+                          processed_data=processed_data,
+                          **common_template_args)
 
     except Exception as e:
         logging.error(f"--- Error loading checklist log matrix view: {e} ---", exc_info=True)
         flash(f"An error occurred while loading the checklist logs: {e}", "danger")
+        today_default = date.today()
+        default_start = today_default - timedelta(days=9)
+        error_template_args = {
+            'current_start_date_str': default_start.strftime('%b %d, %Y'),
+            'current_end_date_str': today_default.strftime('%b %d, %Y'),
+            'prev_start_date_iso': (default_start - timedelta(days=10)).isoformat(),
+            'next_start_date_iso': None,
+            'today_iso': today_default.isoformat()
+        }
         return render_template('pm_checklist_logs_matrix.html',
-                               all_equipment=[],
-                               dates_in_range=[],
-                               processed_data={},
+                               all_equipment=[], dates_in_range=[], processed_data={},
                                error=f"Could not load logs: {e}",
-                               title='Checklist Log Matrix - Error')
+                               title='Checklist Log Matrix - Error',
+                               **error_template_args)
 
 @bp.route('/usage_logs', methods=['GET'])
 def usage_logs():
-    """Displays usage logs in a matrix: equipment vs. last 10 days."""
+    """Displays usage logs in a matrix: equipment vs. a 10-day period."""
     logging.debug("--- Request for Usage Log 10-Day Matrix View ---")
     try:
-        # 1. Determine Date Range (Last 10 days including today)
         today = date.today()
-        start_date = today - timedelta(days=9)
-        dates_in_range = [start_date + timedelta(days=i) for i in range(10)] # List of date objects
-        logging.debug(f"Date range for usage matrix: {start_date} to {today}")
+        start_date_str_param = request.args.get('start_date_str')
 
-        # 2. Fetch all Equipment (Consider adding filters back later if needed)
+        if start_date_str_param:
+            try:
+                current_start_date = date.fromisoformat(start_date_str_param)
+            except ValueError:
+                flash("Invalid start date format in URL. Showing default period.", "warning")
+                current_start_date = today - timedelta(days=9)
+        else:
+            current_start_date = today - timedelta(days=9)
+
+        current_end_date = current_start_date + timedelta(days=9)
+        dates_in_range = [current_start_date + timedelta(days=i) for i in range(10)]
+
+        prev_start_date = current_start_date - timedelta(days=10)
+        next_start_date_candidate = current_start_date + timedelta(days=10)
+        if (next_start_date_candidate + timedelta(days=9)) > today:
+            next_start_date = None
+        else:
+            next_start_date = next_start_date_candidate
+            
+        logging.debug(f"Date range for usage matrix: {current_start_date} to {current_end_date}")
+
         all_equipment = Equipment.query.order_by(Equipment.code).all()
+        common_template_args = {
+            'current_start_date_str': current_start_date.strftime('%b %d, %Y'),
+            'current_end_date_str': current_end_date.strftime('%b %d, %Y'),
+            'prev_start_date_iso': prev_start_date.isoformat(),
+            'next_start_date_iso': next_start_date.isoformat() if next_start_date else None,
+            'today_iso': today.isoformat()
+        }
         if not all_equipment:
             flash("No equipment found.", "info")
             return render_template('pm_usage_logs.html',
-                                   all_equipment=[],
-                                   dates_in_range=[],
-                                   processed_data={},
-                                   title='Usage Log Matrix (Last 10 Days)')
+                                   all_equipment=[], dates_in_range=[], processed_data={},
+                                   title='Usage Log Matrix', **common_template_args)
 
         equipment_ids = [eq.id for eq in all_equipment]
+        range_start_dt_utc = datetime.combine(current_start_date, time.min).replace(tzinfo=timezone.utc)
+        range_end_dt_utc = datetime.combine(current_end_date, time.max).replace(tzinfo=timezone.utc)
 
-        # 3. Fetch Relevant Logs within the date range (Ensure timezone handling)
-        # Convert date range to timezone-aware datetimes for comparison
-        range_start_dt_utc = datetime.combine(start_date, time.min).replace(tzinfo=timezone.utc)
-        # Go to the very end of the 'today' date for inclusive range
-        range_end_dt_utc = datetime.combine(today, time.max).replace(tzinfo=timezone.utc)
-
-        # Assume UsageLog.log_date is stored as UTC DateTime
         relevant_logs_query = UsageLog.query.filter(
             UsageLog.equipment_id.in_(equipment_ids),
             UsageLog.log_date >= range_start_dt_utc,
             UsageLog.log_date <= range_end_dt_utc
         ).options(
-            db.joinedload(UsageLog.equipment_ref) # Still useful if accessing eq details
+            db.joinedload(UsageLog.equipment_ref)
         ).order_by(
             UsageLog.equipment_id,
-            UsageLog.log_date # Order chronologically for processing
+            UsageLog.log_date
         )
-
         relevant_logs = relevant_logs_query.all()
         logging.debug(f"Found {len(relevant_logs)} usage logs within the date range.")
 
-        # 4. Process logs into the desired structure: {eq_id: {date: {'count': N, 'total': X, 'logs': [...]}}}
         processed_data = defaultdict(lambda: defaultdict(lambda: {'count': 0, 'total': 0.0, 'logs': []}))
-
         for log in relevant_logs:
             eq_id = log.equipment_id
-            # Ensure log_date is treated as UTC before getting the date part
             log_date_utc = log.log_date
             if log_date_utc.tzinfo is None:
-                # If stored naive, assume it's UTC (adjust if your DB stores local time)
                 log_date_utc = log_date_utc.replace(tzinfo=timezone.utc)
             else:
-                # Convert to UTC if it has another timezone
                 log_date_utc = log_date_utc.astimezone(timezone.utc)
+            log_date_only = log_date_utc.date()
 
-            log_date_only = log_date_utc.date() # Get the date part after ensuring UTC
-
-            # Check if the date falls within our display range (it should due to query, but belts & braces)
-            if start_date <= log_date_only <= today:
+            if current_start_date <= log_date_only <= current_end_date:
                 cell_data = processed_data[eq_id][log_date_only]
                 cell_data['count'] += 1
                 cell_data['total'] += log.usage_value
-                # Append essential log info for potential modal display
                 cell_data['logs'].append({
-                    'id': log.id,
-                    'value': log.usage_value,
-                    'timestamp': log_date_utc.strftime('%Y-%m-%d %H:%M UTC') # Store formatted string
+                    'id': log.id, 'value': log.usage_value,
+                    'timestamp': log_date_utc.strftime('%Y-%m-%d %H:%M UTC')
                 })
-
         logging.debug(f"Processed usage data structure contains entries for {len(processed_data)} equipment.")
-        view_title = 'Usage Log Matrix (Last 10 Days)'
+        view_title = f'Usage Logs: {current_start_date.strftime("%b %d")} - {current_end_date.strftime("%b %d, %Y")}'
 
-        # 5. Render the template
-        base_url = url_for('planned_maintenance.dashboard', _external=False).rstrip('/')
-        return render_template('pm_usage_logs.html',      # *** CORRECTED TEMPLATE NAME ***
-                          base_url=base_url,               # You might not need base_url anymore if you removed it earlier
-                          title="Usage Logs Matrix",
+        return render_template('pm_usage_logs.html',
+                          title=view_title,
                           all_equipment=all_equipment,
                           dates_in_range=dates_in_range,
-                          processed_data=processed_data)
+                          processed_data=processed_data,
+                          **common_template_args)
     except Exception as e:
         logging.error(f"--- Error loading usage log matrix view: {e} ---", exc_info=True)
         flash(f"An error occurred while loading the usage logs: {e}", "danger")
+        today_default = date.today()
+        default_start = today_default - timedelta(days=9)
+        error_template_args = {
+            'current_start_date_str': default_start.strftime('%b %d, %Y'),
+            'current_end_date_str': today_default.strftime('%b %d, %Y'),
+            'prev_start_date_iso': (default_start - timedelta(days=10)).isoformat(),
+            'next_start_date_iso': None,
+            'today_iso': today_default.isoformat()
+        }
         return render_template('pm_usage_logs.html',
-                               all_equipment=[],
-                               dates_in_range=[],
-                               processed_data={},
+                               all_equipment=[], dates_in_range=[], processed_data={},
                                error=f"Could not load logs: {e}",
-                               title='Usage Log Matrix - Error')
-# Add these routes to routes.py
+                               title='Usage Log Matrix - Error',
+                               **error_template_args)
+
 
 # ==============================================================================
 # === Legal Compliance Tasks List ===
@@ -3445,6 +3478,7 @@ def legal_tasks_list():
 # ==============================================================================
 @bp.route('/legal_task/add', methods=['GET', 'POST'])
 def add_legal_task():
+
     """Displays form to add a new legal compliance task (GET) or processes addition (POST)."""
     if request.method == 'POST':
         try:
@@ -3508,6 +3542,7 @@ def add_legal_task():
 
     return render_template('pm_legal_task_form.html', equipment=equipment_list, title="Add New Legal Compliance Task")
 
+
 # === AJAX Endpoint to get logs for modal ===
 @bp.route('/logs/get_for_cell', methods=['GET'])
 def get_logs_for_cell():
@@ -3525,6 +3560,10 @@ def get_logs_for_cell():
         end_dt = datetime.combine(target_date, time.max).replace(tzinfo=timezone.utc)
 
         logs_data = []
+        equipment = Equipment.query.get(equipment_id)
+        equipment_code = equipment.code if equipment else "Unknown Equipment"
+        modal_title = f"Logs for {equipment_code} on {target_date.strftime('%Y-%m-%d')}"
+
         if log_type == 'checklist':
             logs = Checklist.query.filter(
                 Checklist.equipment_id == equipment_id,
@@ -3535,11 +3574,12 @@ def get_logs_for_cell():
                 log_date_utc = log.check_date.astimezone(timezone.utc) if log.check_date.tzinfo else log.check_date.replace(tzinfo=timezone.utc)
                 logs_data.append({
                     'id': log.id,
-                    'timestamp': log_date_utc.strftime('%H:%M:%S UTC'), # Only time part needed?
+                    'timestamp': log_date_utc.strftime('%H:%M:%S UTC'),
                     'status': log.status,
                     'issues': log.issues or '',
                     'operator': log.operator or 'N/A',
-                    'edit_url': url_for('planned_maintenance.edit_checklist_log_form', log_id=log.id) # URL for fetching form
+                    'edit_url': url_for('planned_maintenance.edit_checklist_log_form', log_id=log.id),
+                    'delete_url': url_for('planned_maintenance.delete_checklist_log', log_id=log.id)
                 })
         elif log_type == 'usage':
             logs = UsageLog.query.filter(
@@ -3552,13 +3592,14 @@ def get_logs_for_cell():
                  logs_data.append({
                     'id': log.id,
                     'timestamp': log_date_utc.strftime('%H:%M:%S UTC'),
-                    'value': log.usage_value,
-                    'edit_url': url_for('planned_maintenance.edit_usage_log_form', log_id=log.id) # URL for fetching form
+                    'value': log.usage_value, # Keep value for UI update
+                    'edit_url': url_for('planned_maintenance.edit_usage_log_form', log_id=log.id),
+                    'delete_url': url_for('planned_maintenance.delete_usage_log', log_id=log.id)
                 })
         else:
             return jsonify({'error': 'Invalid log type'}), 400
 
-        return jsonify({'logs': logs_data})
+        return jsonify({'logs': logs_data, 'modal_title': modal_title, 'log_type': log_type}) # Return log_type
 
     except ValueError:
         return jsonify({'error': 'Invalid date format'}), 400
@@ -3566,121 +3607,99 @@ def get_logs_for_cell():
         logging.error(f"Error fetching logs for cell: {e}", exc_info=True)
         return jsonify({'error': 'Server error fetching log details'}), 500
 
-
-# === Routes to GET Edit Form Content (for Modal) ===
-
-@bp.route('/checklist/edit_form/<int:log_id>', methods=['GET'])
+# === Route to RENDER Checklist Log Edit Form ===
+@bp.route('/checklist/edit/<int:log_id>', methods=['GET'])
 def edit_checklist_log_form(log_id):
     log = Checklist.query.get_or_404(log_id)
-    form = ChecklistEditForm(obj=log) # Populate form from log object
-    # Format date for datetime-local input (needs YYYY-MM-DDTHH:MM)
-    # Ensure datetime is naive for the input field, representing local time if applicable
-    # For simplicity, let's use the stored UTC time directly in the input for now.
-    # User might need to be aware it's UTC. Convert to local if needed.
-    if log.check_date:
-         if log.check_date.tzinfo:
-              check_date_naive = log.check_date.astimezone(timezone.utc).replace(tzinfo=None)
-         else:
-             check_date_naive = log.check_date # Assume stored naive is UTC intended
-         form.check_date.data = check_date_naive
+    try:
+        logging.info(f"Fetching edit form for ChecklistLog ID: {log.id}")
+        return render_template('edit_checklist_log.html', log=log)
+    except Exception as e:
+        logging.error(f"Error rendering edit form for checklist log {log_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Server error rendering edit form'}), 500
 
+# === Route to PROCESS Checklist Log Update ===
+@bp.route('/checklist/update/<int:log_id>', methods=['POST'])
+def update_checklist_log(log_id):
+    log = Checklist.query.get_or_404(log_id)
+    try:
+        log.status = request.form.get('status')
+        log.issues = request.form.get('issues')
+        log.operator = request.form.get('operator')
 
-    # Render *only* the form part using a partial template
-    return render_template('_checklist_edit_form_partial.html', form=form, log_id=log_id)
+        # Basic validation
+        if not log.status:
+            return jsonify({'success': False, 'error': 'Status is required'}), 400
 
-@bp.route('/usage/edit_form/<int:log_id>', methods=['GET'])
+        logging.info(f"Updating ChecklistLog ID: {log.id}, Equipment: {log.equipment_id}, Date: {log.check_date}")
+        db.session.commit()
+        logging.info(f"ChecklistLog ID: {log_id} updated successfully.")
+        return jsonify({'success': True, 'message': f'Checklist log ID {log.id} updated successfully.'})
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error updating checklist log {log_id}: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': f'Server error updating log: {str(e)}'}), 500
+
+# === Route to RENDER Usage Log Edit Form ===
+@bp.route('/usage/edit/<int:log_id>', methods=['GET'])
 def edit_usage_log_form(log_id):
     log = UsageLog.query.get_or_404(log_id)
-    form = UsageLogEditForm(obj=log)
-    # Format date for datetime-local input
-    if log.log_date:
-        if log.log_date.tzinfo:
-            log_date_naive = log.log_date.astimezone(timezone.utc).replace(tzinfo=None)
-        else:
-            log_date_naive = log.log_date
-        form.log_date.data = log_date_naive
-    form.usage_value.data = log.usage_value # Ensure value is set
+    try:
+        logging.info(f"Fetching edit form for UsageLog ID: {log.id}")
+        return render_template('edit_usage_log.html', log=log)
+    except Exception as e:
+        logging.error(f"Error rendering edit form for usage log {log_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Server error rendering edit form'}), 500
 
-    return render_template('_usage_log_edit_form_partial.html', form=form, log_id=log_id)
-
-
-# === Routes to PROCESS Edit Form Submission ===
-@bp.route('/checklist/edit/<int:log_id>', methods=['POST'])
-def edit_checklist_log(log_id):
-    log = Checklist.query.get_or_404(log_id)
-    form = ChecklistEditForm(request.form)
-    if form.validate_on_submit():
-        try:
-            log.status = form.status.data
-            log.issues = form.issues.data
-            log.operator = form.operator.data
-            naive_dt = form.check_date.data
-            if naive_dt:
-                log.check_date = naive_dt.replace(tzinfo=timezone.utc)
-            db.session.commit()
-            return jsonify({'success': True, 'message': f'Checklist log ID {log.id} updated successfully.'})
-        except Exception as e:
-            db.session.rollback()
-            return jsonify({'success': False, 'error': str(e)}), 500
-    else:
-        errors = {field: errors for field, errors in form.errors.items()}
-        return jsonify({'success': False, 'error': 'Validation failed', 'errors': errors}), 400
-
-@bp.route('/usage/edit/<int:log_id>', methods=['POST'])
-def edit_usage_log(log_id):
+# === Route to PROCESS Usage Log Update ===
+@bp.route('/usage/update/<int:log_id>', methods=['POST'])
+def update_usage_log(log_id):
     log = UsageLog.query.get_or_404(log_id)
-    # Use request.form directly with the form for AJAX posts
-    form = UsageLogEditForm(request.form)
+    try:
+        usage_value = request.form.get('usage_value', type=float)
+        if usage_value is None or usage_value < 0:
+            return jsonify({'success': False, 'error': 'Usage value must be a non-negative number'}), 400
 
-    # Use WTForms validation
-    if form.validate(): # Use validate() instead of validate_on_submit for direct form data
-        try:
-            log.usage_value = form.usage_value.data
+        log.usage_value = usage_value
+        logging.info(f"Updating UsageLog ID: {log.id}, Equipment: {log.equipment_id}, Date: {log.log_date}")
+        db.session.commit()
+        logging.info(f"UsageLog ID: {log_id} updated successfully.")
+        return jsonify({'success': True, 'message': f'Usage log ID {log.id} updated successfully.'})
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error updating usage log {log_id}: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': f'Server error updating log: {str(e)}'}), 500
 
-            naive_dt = form.log_date.data
-            if naive_dt:
-                 # Assume naive datetime from form represents UTC
-                 log.log_date = naive_dt.replace(tzinfo=timezone.utc)
-            else:
-                 # Handle case where date might be cleared
-                 log.log_date = None # Or set to a default if required
+# === Route to PROCESS Usage Log Deletion ===
+@bp.route('/usage/delete/<int:log_id>', methods=['POST'])
+def delete_usage_log(log_id):
+    log = UsageLog.query.get_or_404(log_id)
+    try:
+        logging.info(f"User attempting to delete UsageLog ID: {log.id}, Equipment: {log.equipment_id}, Date: {log.log_date}, Value: {log.usage_value}")
+        
+        db.session.delete(log)
+        db.session.commit()
+        logging.info(f"UsageLog ID: {log_id} deleted successfully.")
+        return jsonify({'success': True, 'message': f'Usage log ID {log.id} deleted successfully.'})
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error deleting usage log {log_id}: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': f'Server error deleting log: {str(e)}'}), 500
 
-            db.session.commit()
-            logging.info(f"Usage log ID {log.id} updated successfully via AJAX.")
-            # Return JSON success response
-            return jsonify({'success': True, 'message': f'Usage log ID {log.id} updated successfully.'})
+# === Route to PROCESS Checklist Log Deletion ===
+@bp.route('/checklist/delete/<int:log_id>', methods=['POST'])
+def delete_checklist_log(log_id):
+    log = Checklist.query.get_or_404(log_id)
+    try:
+        logging.info(f"User attempting to delete ChecklistLog ID: {log.id}, Equipment: {log.equipment_id}, Date: {log.check_date}, Status: {log.status}")
+        
+        db.session.delete(log)
+        db.session.commit()
+        logging.info(f"ChecklistLog ID: {log_id} deleted successfully.")
+        return jsonify({'success': True, 'message': f'Checklist log ID {log.id} deleted successfully.'})
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error deleting checklist log {log_id}: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': f'Server error deleting log: {str(e)}'}), 500
 
-        except Exception as e:
-            db.session.rollback()
-            logging.error(f"Error updating usage log {log_id} via AJAX: {e}", exc_info=True)
-            # Return JSON error response
-            return jsonify({'success': False, 'error': f'Database error: {str(e)}'}), 500
-    else:
-        # Validation failed, return JSON error response with validation errors
-        errors = {field: errors for field, errors in form.errors.items()}
-        logging.warning(f"Validation failed for usage log edit {log_id}: {errors}")
-        return jsonify({'success': False, 'error': 'Validation failed', 'errors': errors}), 400
-
-    if form.validate_on_submit():
-        try:
-            log.usage_value = form.usage_value.data
-
-            naive_dt = form.log_date.data
-            if naive_dt:
-                 log.log_date = naive_dt.replace(tzinfo=timezone.utc) # Assume UTC
-            else:
-                 log.log_date = None
-
-            db.session.commit()
-            flash(f'Usage log ID {log.id} updated successfully.', 'success')
-            return redirect(url_for('planned_maintenance.usage_logs'))
-        except Exception as e:
-            db.session.rollback()
-            logging.error(f"Error updating usage log {log_id}: {e}", exc_info=True)
-            flash(f'Error updating usage log: {e}', 'danger')
-            return redirect(url_for('planned_maintenance.usage_logs'))
-    else:
-        for field, errors in form.errors.items():
-            for error in errors:
-                flash(f"Error in {getattr(form, field).label.text}: {error}", 'warning')
-        return redirect(url_for('planned_maintenance.usage_logs'))
+# ... (rest of the routes.py file remains unchanged) ...

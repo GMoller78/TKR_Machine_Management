@@ -4,14 +4,41 @@
 
 {% block content %}
 <div class="container-fluid">
-    <h1 class="mb-4">{{ title }}</h1>
-    <div class="row mb-3">
-        <div class="col-12">
-             <a href="{{ url_for('planned_maintenance.dashboard') }}" class="btn btn-sm btn-outline-secondary">Back to Dashboard</a>
-             <small class="text-muted ms-3">Showing latest check status & count per day for the last 10 days.</small>
-              <span class="badge bg-light text-dark border ms-3">#: Count</span>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1 class="mb-0">{{ title }}</h1>
+        <div>
+            <a href="{{ url_for('planned_maintenance.dashboard') }}" class="btn btn-sm btn-outline-secondary">Back to Dashboard</a>
         </div>
     </div>
+
+    <div class="row mb-3 align-items-center">
+        <div class="col-md-auto">
+            <div class="btn-group" role="group" aria-label="Date navigation">
+                <a href="{{ url_for('planned_maintenance.checklist_logs', start_date_str=prev_start_date_iso) }}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-left-short"></i> Prev 10 Days
+                </a>
+                <a href="{{ url_for('planned_maintenance.checklist_logs') }}" class="btn btn-outline-primary btn-sm {% if not request.args.get('start_date_str') %}active{% endif %}">
+                    Current Period
+                </a>
+                {% if next_start_date_iso %}
+                <a href="{{ url_for('planned_maintenance.checklist_logs', start_date_str=next_start_date_iso) }}" class="btn btn-outline-primary btn-sm">
+                    Next 10 Days <i class="bi bi-arrow-right-short"></i>
+                </a>
+                {% else %}
+                <button class="btn btn-outline-primary btn-sm" disabled>
+                    Next 10 Days <i class="bi bi-arrow-right-short"></i>
+                </button>
+                {% endif %}
+            </div>
+        </div>
+        <div class="col-md">
+            <small class="text-muted ms-md-3">
+                Displaying: {{ current_start_date_str }} to {{ current_end_date_str }}.
+                <span class="badge bg-light text-dark border ms-2">#: Count</span>
+            </small>
+        </div>
+    </div>
+
 
     {% if error %}
         <div class="alert alert-danger" role="alert">
@@ -26,7 +53,7 @@
                     <tr>
                         <th style="width: 15%; vertical-align: middle;" class="text-center">Equipment Code</th>
                         {% for day_date in dates_in_range %}
-                            <th class="text-center align-middle small" style="width: 8.5%;">
+                            <th class="text-center align-middle small {% if day_date.isoformat() == today_iso %} table-info{% endif %}" style="width: 8.5%;">
                                 {{ day_date.strftime('%a') }}
                                 <div class="text-muted" style="font-size: 0.9em;">{{ day_date.strftime('%d') }}</div>
                             </th>
@@ -45,7 +72,7 @@
                             {% for day_date in dates_in_range %}
                                 {% set cell_data = processed_data.get(eq.id, {}).get(day_date) %}
                                 {% set latest_log_info = cell_data.latest_log if cell_data else None %}
-                                <td class="text-center align-middle position-relative">
+                                <td class="text-center align-middle position-relative {% if day_date.isoformat() == today_iso %} table-info{% endif %}">
                                     {% if latest_log_info %}
                                         {% set tooltip_title = latest_log_info.full_timestamp_str + '<br>Op: ' + latest_log_info.operator %}
                                         {% if latest_log_info.comments %}
@@ -92,7 +119,7 @@
             </table>
         </div>
     {% elif not error %}
-        <p class="text-muted text-center">No checklist logs or equipment found to display for the last 10 days.</p>
+        <p class="text-muted text-center">No checklist logs or equipment found to display for the selected period.</p>
     {% endif %}
 </div>
 {% endblock %}
