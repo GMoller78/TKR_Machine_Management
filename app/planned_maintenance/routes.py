@@ -1639,7 +1639,6 @@ def job_card_list():
         per_page = 25
         overdue_threshold_dt = datetime.combine(date.today(), time.min)
 
-        # ... (all your filter string retrievals: start_date_str, equipment_search_term, etc.) ...
         start_date_str = request.args.get('start_date', '')
         end_date_str = request.args.get('end_date', '')
         equipment_search_term = request.args.get('equipment_search', '').strip()
@@ -1648,8 +1647,6 @@ def job_card_list():
         equipment_type_filter = request.args.get('equipment_type', 'All')
         technician_filter = request.args.get('technician_filter', 'All')
 
-
-        # ... (start_date_val, end_date_val parsing) ...
         start_date_val = None
         end_date_val = None
         if start_date_str:
@@ -1666,34 +1663,38 @@ def job_card_list():
         logging.debug(f"Filters - Start: {start_date_val}, End: {end_date_val}, Equip Search: '{equipment_search_term}', Status: {status_filter}, Job Type: {job_type_filter}, Equip Type: {equipment_type_filter}, Technician: {technician_filter}, Page: {page}")
 
         query = JobCard.query.options(
-            db.joinedload(JobCard.equipment_ref)
+            db.joinedload(JobCard.equipment_ref)  # Eager load equipment
         )
 
-        # ... (all your query filter applications) ...
         if start_date_val:
             query = query.filter(JobCard.due_date >= datetime.combine(start_date_val, time.min))
         if end_date_val:
             query = query.filter(JobCard.due_date <= datetime.combine(end_date_val, time.max))
-        if equipment_search_term: 
+
+        if equipment_search_term:
             search_pattern = f"%{equipment_search_term}%"
-            if Equipment not in [c.entity for c in query._join_entities]:
-                 query = query.join(JobCard.equipment_ref)
+            # Join Equipment table via the equipment_ref relationship to filter on its attributes
+            query = query.join(JobCard.equipment_ref)
             query = query.filter(
                 or_(
                     Equipment.code.ilike(search_pattern),
                     Equipment.name.ilike(search_pattern)
                 )
             )
+
         if equipment_type_filter and equipment_type_filter != 'All':
-            if Equipment not in [c.entity for c in query._join_entities]:
-                 query = query.join(JobCard.equipment_ref)
+            # Join Equipment table via the equipment_ref relationship
+            query = query.join(JobCard.equipment_ref)
             query = query.filter(Equipment.type == equipment_type_filter)
+
         if status_filter and status_filter != 'All' and status_filter in JOB_CARD_STATUSES:
             query = query.filter(JobCard.status == status_filter)
+
         if job_type_filter == 'Maintenance':
             query = query.filter(JobCard.job_number.like('JC-%'))
         elif job_type_filter == 'Legal':
             query = query.filter(JobCard.job_number.like('LC-%'))
+
         if technician_filter and technician_filter != 'All':
             if technician_filter == 'Unassigned':
                 query = query.filter(or_(JobCard.technician == None, JobCard.technician == ''))
@@ -1725,7 +1726,6 @@ def job_card_list():
             'technician_filter': technician_filter
         }
 
-        # <<< --- ENSURE THIS LINE IS PRESENT --- >>>
         all_equipment_for_modal = Equipment.query.filter(Equipment.status != 'Sold').order_by(Equipment.code).all()
 
         logging.debug(f"Found {pagination.total} job cards matching filters. Displaying page {page} ({len(job_cards_page)} items).")
@@ -1740,9 +1740,8 @@ def job_card_list():
             equipment_types_for_filter=equipment_types_for_filter,
             technicians_for_filter=technicians_for_filter,
             current_filters=current_filters,
-            # today=date.today(), # Not strictly needed if overdue_threshold_dt is used for all date comparisons
             overdue_threshold_dt=overdue_threshold_dt,
-            all_equipment=all_equipment_for_modal  # <<< --- PASS IT TO THE TEMPLATE --- >>>
+            all_equipment=all_equipment_for_modal
         )
 
     except Exception as e:
@@ -1752,17 +1751,16 @@ def job_card_list():
             'pm_job_card_list.html',
             title="Job Card List - Error",
             error=f"Could not load job cards: {e}",
-            pagination=None, job_cards=[], 
+            pagination=None, job_cards=[],
             job_card_statuses=['All'] + JOB_CARD_STATUSES,
             job_type_options=['All', 'Maintenance', 'Legal'],
             equipment_types_for_filter=['All'],
             technicians_for_filter=['All'],
             current_filters={},
-            # today=date.today(),
             overdue_threshold_dt=datetime.combine(date.today(), time.min),
-            all_equipment=[] # <<< --- Pass empty list on error --- >>>
+            all_equipment=[]
         )
-    
+
 @bp.route('/job_card/<int:id>', methods=['GET']) # Use GET to view details
 def job_card_detail(id):
     """Displays the details of a single Job Card."""
