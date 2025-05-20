@@ -1635,6 +1635,7 @@ def job_card_list():
     """Displays a list of job cards with filtering options."""
     logging.debug("--- Request for Job Card List View ---")
     try:
+        #comment for github
         page = request.args.get('page', 1, type=int)
         per_page = 25
         overdue_threshold_dt = datetime.combine(date.today(), time.min)
