@@ -1,0 +1,23 @@
+{% extends "pm_base.html" %}
+{% import "bootstrap_wtf.html" as wtf %} {# Assumes bootstrap_wtf.html is in app/templates/ #}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6 col-lg-4">
+        <div class="card mt-5 shadow-sm">
+            <div class="card-header bg-dark text-white">
+                <h4 class="mb-0">{{ title }}</h4>
+            </div>
+            <div class="card-body">
+                {{ wtf.quick_form(form, action_url=url_for('auth.login'), button_map={'submit': 'btn-primary w-100'}) }}
+            </div>
+            <div class="card-footer text-center small">
+                {# <p><a href="#">Forgot Password?</a></p> #}
+                <p class="text-muted">No self-registration. Contact an administrator if you need an account.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

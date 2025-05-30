@@ -1,15 +1,21 @@
 # tkr_system/app/__init__.py
 import os
 import calendar
+import logging
 from flask import Flask, request, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from werkzeug.middleware.proxy_fix import ProxyFix
+from flask_login import LoginManager
 from config import Config
 
 # Initialize extensions
 db = SQLAlchemy()
-migrate = Migrate()
+migrate = Migrate() # Uncomment if you use Flask-Migrate
+login_manager = LoginManager()
+login_manager.login_view = 'auth.login' # Route name for login page
+login_manager.login_message = 'Please log in to access this page.'
+login_manager.login_message_category = 'info' # Bootstrap class for flash message
 
 def create_app(config_class=Config):
     """Flask application factory."""
@@ -30,6 +36,7 @@ def create_app(config_class=Config):
     # Initialize Flask extensions with the app instance
     db.init_app(app)
     migrate.init_app(app, db)
+    login_manager.init_app(app) 
 
     # Define and Register Jinja Filter
     @app.template_filter('month_name')
@@ -90,6 +97,7 @@ def create_app(config_class=Config):
     from app.planned_maintenance import bp as pm_bp
     from app.inventory import bp as inv_bp
     from app.api.routes import api_bp
+    from app.auth import bp as auth_bp
 
     app.jinja_env.filters['nl2br'] = nl2br
     from app.planned_maintenance.routes import generate_whatsapp_share_url
@@ -98,7 +106,7 @@ def create_app(config_class=Config):
     app.register_blueprint(pm_bp, url_prefix='/planned-maintenance')
     app.register_blueprint(inv_bp, url_prefix='/inventory')
     app.register_blueprint(api_bp)  # Assuming no prefix for API, adjust if needed
-    
+    app.register_blueprint(auth_bp, url_prefix='/auth')
 
     # Simple root route for testing
     @app.route('/hello')

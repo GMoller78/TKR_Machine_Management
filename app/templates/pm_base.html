@@ -6,28 +6,28 @@
     <title>{% block title %}TKR Planned Maintenance{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-    {# Optional: Font Awesome for pencil icon in modals #}
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
-    <!-- Optional: Add custom CSS link here -->
     {% block styles %}
-
+    <style>
+        /* Ensure content doesn't hide behind sticky navbar */
+        body { 
+            padding-top: 56px; /* Adjust if your navbar height changes */
+        }
+    </style>
     {% endblock styles %}
     <script>
-        // Pass the application root path (prefix) to JavaScript
-        // request.script_root will be '/tkr' if app is at example.com/tkr
-        // request.script_root will be '' (empty string) if app is at example.com/
-        // Using |e or |tojson ensures the string is safely embedded in JavaScript.
         const SCRIPT_NAME = {{ request.script_root | default('', true) | tojson }};
     </script>
   </head>
   <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top"> {# Changed to fixed-top #}
       <div class="container-fluid">
-        <a class="navbar-brand" href="{{ url_for('planned_maintenance.dashboard') }}">TKR PM</a>
+        <a class="navbar-brand" href="{{ url_for('planned_maintenance.dashboard') if current_user.is_authenticated else url_for('auth.login') }}">TKR PM</a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#pmNavbar" aria-controls="pmNavbar" aria-expanded="false" aria-label="Toggle navigation">
           <span class="navbar-toggler-icon"></span>
         </button>
         <div class="collapse navbar-collapse" id="pmNavbar">
+          {% if current_user.is_authenticated %}
           <ul class="navbar-nav me-auto mb-2 mb-lg-0">
             <li class="nav-item">
               <a class="nav-link {% if request.endpoint == 'planned_maintenance.dashboard' %}active{% endif %}" aria-current="page" href="{{ url_for('planned_maintenance.dashboard') }}">Dashboard</a>
@@ -43,9 +43,9 @@
             </li>
             <li class="nav-item dropdown">
               <a class="nav-link dropdown-toggle 
-                 {% if request.endpoint == 'planned_maintenance.job_card_list' or 
-                      request.endpoint == 'planned_maintenance.job_card_reports_dashboard' or
-                      request.endpoint == 'planned_maintenance.report_jobs_by_technician' %}active{% endif %}" 
+                 {% if request.endpoint in ['planned_maintenance.job_card_list', 
+                                           'planned_maintenance.job_card_reports_dashboard',
+                                           'planned_maintenance.report_jobs_by_technician'] %}active{% endif %}" 
                  href="#" id="navbarDropdownJobCards" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                 Job Cards
               </a>
@@ -61,35 +61,59 @@
               </ul>
             </li>
             <li class="nav-item">
-              <a class="nav-link {% if request.endpoint == 'planned_maintenance.maintenance_plan_list_view' %}active{% endif %}" href="{{ url_for('planned_maintenance.maintenance_plan_list_view') }}">Planning</a>
+              <a class="nav-link {% if request.endpoint == 'planned_maintenance.maintenance_plan_list_view' or request.endpoint == 'planned_maintenance.maintenance_plan_detail_view' %}active{% endif %}" href="{{ url_for('planned_maintenance.maintenance_plan_list_view') }}">Planning</a>
             </li>
-            <!-- Add other PM links as needed -->
-             <li class="nav-item dropdown"> {# Added dropdown for Logs #}
+             <li class="nav-item dropdown">
                 <a class="nav-link dropdown-toggle {% if request.endpoint.endswith('_logs') %}active{% endif %}" href="#" id="navbarDropdownLogs" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                     Logs
                 </a>
                 <ul class="dropdown-menu dropdown-menu-dark" aria-labelledby="navbarDropdownLogs">
                     <li><a class="dropdown-item {% if request.endpoint == 'planned_maintenance.checklist_logs' %}active{% endif %}" href="{{ url_for('planned_maintenance.checklist_logs') }}">Checklist Logs</a></li>
                     <li><a class="dropdown-item {% if request.endpoint == 'planned_maintenance.usage_logs' %}active{% endif %}" href="{{ url_for('planned_maintenance.usage_logs') }}">Usage Logs</a></li>
-                    {# Add other log links here if needed #}
                 </ul>
             </li>
+            {% if current_user.role == 'admin' %}
+            <li class="nav-item">
+                <a class="nav-link {% if request.blueprint == 'auth' and request.endpoint.endswith('user_list') %}active{% endif %}" href="{{ url_for('auth.user_list') }}">User Management</a>
+            </li>
+            {% endif %}
           </ul>
+          {% endif %} {# End current_user.is_authenticated block for main nav items #}
+
            <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
-             <li class="nav-item">
+             {# Temporarily hide "Switch to Inventory" if inventory blueprint is not fully set up #}
+             {# <li class="nav-item">
                <a class="nav-link" href="{{ url_for('inventory.dashboard') }}">Switch to Inventory</a>
-             </li>
+             </li> #}
+             {% if current_user.is_authenticated %}
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="navbarUserDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-person-circle"></i> {{ current_user.username }} ({{ current_user.role|capitalize }})
+                    </a>
+                    <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end" aria-labelledby="navbarUserDropdown">
+                        {# Add link to profile page if you create one #}
+                        {# <li><a class="dropdown-item" href="#">My Profile</a></li> #}
+                        {# <li><hr class="dropdown-divider"></li> #}
+                        <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
+                    </ul>
+                </li>
+             {% else %}
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'auth.login' %}active{% endif %}" href="{{ url_for('auth.login') }}">
+                        <i class="bi bi-box-arrow-in-right"></i> Login
+                    </a>
+                </li>
+             {% endif %}
            </ul>
         </div>
       </div>
     </nav>
 
-    <div class="container-fluid mt-4"> {# Changed container to container-fluid for wider layout #}
+    <div class="container-fluid mt-4">
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
           {% for category, message in messages %}
             <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-              {# Use safe filter for messages potentially containing HTML #}
               {{ message|safe }}
               <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
             </div>
@@ -99,7 +123,7 @@
 
       {% block content %}
       {% endblock %}
-    </div> {# End container-fluid #}
+    </div>
 
     {# -------- Generic Log Edit Modal -------- #}
     <div class="modal fade" id="editLogModal" tabindex="-1" aria-labelledby="editLogModalLabel" aria-hidden="true">
@@ -114,6 +138,7 @@
               </div>
               <div class="modal-footer">
                   <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+                  {# Potentially add a "Save changes" button here if the modal content itself becomes a form directly #}
               </div>
           </div>
       </div>
@@ -121,19 +146,14 @@
     {# -------- End Generic Log Edit Modal -------- #}
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
-    {# Include jQuery if needed by other scripts, Bootstrap 5 doesn't require it #}
-    {# <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script> #}
     {% block scripts %}
     <script>
         // Standard escapeHtml function
         function escapeHtml(unsafe) {
-    // Add these two lines:
-        if (typeof unsafe !== 'string') {
-            unsafe = String(unsafe); // Convert non-strings (like numbers) to strings
-        }
-
-        // Then the rest of your function:
-        return unsafe
+            if (typeof unsafe !== 'string') {
+                unsafe = String(unsafe); 
+            }
+            return unsafe
                       .replace(/&/g, "&amp;")
                       .replace(/</g, "&lt;")
                       .replace(/>/g, "&gt;")
@@ -153,13 +173,8 @@
                 if (modalBody) modalBody.innerHTML = '<p class="text-danger">Error: Insufficient data to load log details.</p>';
                 return;
             }
-
-            console.log('Refreshing log details for:', { logType, equipmentId, logDate });
-
-            // MODIFIED LINE: Prepend SCRIPT_NAME to the URL
-            // SCRIPT_NAME will be '/tkr' or '' (empty string if at root)
+            
             const fetchUrl = SCRIPT_NAME + '/planned-maintenance/logs/get_for_cell?log_type=' + logType + '&equipment_id=' + equipmentId + '&log_date=' + logDate;
-            console.log("Fetching URL:", fetchUrl); // Check console: this should now include /tkr if applicable
             
             fetch(fetchUrl, {
                 method: 'GET',
@@ -169,7 +184,6 @@
             })
             .then(response => {
                 if (!response.ok) {
-                    console.error("Fetch response not OK:", response);
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 return response.json();
@@ -178,8 +192,6 @@
                 if (data.error) {
                     throw new Error(data.error);
                 }
-
-                console.log('Log data received:', data);
 
                 const modalTitle = document.getElementById('editLogModalLabel');
                 modalTitle.textContent = data.modal_title;
@@ -191,9 +203,6 @@
                     html += '<p class="text-muted">No logs found for this date.</p>';
                 } else {
                     data.logs.forEach(log => {
-                        // Using escapeHtml for all string data being injected into attributes or content
-                        // IMPORTANT: Ensure log.edit_url and log.delete_url from the server ALREADY include the /tkr prefix
-                        // (they should, if generated with url_for() in Python backend)
                         const safeEditUrl = escapeHtml(log.edit_url || '');
                         const safeDeleteUrl = escapeHtml(log.delete_url || '');
                         const safeLogId = escapeHtml(log.id);
@@ -252,7 +261,6 @@
                 }
                 html += '</div>';
                 modalBody.innerHTML = html;
-                console.log('Modal body updated with HTML for log list.');
             })
             .catch(error => {
                 console.error('Error refreshing log details:', error);
@@ -262,6 +270,7 @@
         }
 
         document.addEventListener('DOMContentLoaded', function() {
+            // Modal trigger for showing log list
             document.addEventListener('click', function(event) {
                 const triggerLink = event.target.closest('.edit-log-trigger');
                 if (triggerLink) {
@@ -276,12 +285,6 @@
                     modalElement.dataset.equipmentId = triggerLink.dataset.equipmentId;
                     modalElement.dataset.logDate = triggerLink.dataset.logDate;
                     
-                    console.log('Edit log trigger clicked. Modal data set:', { 
-                        logType: modalElement.dataset.logType, 
-                        equipmentId: modalElement.dataset.equipmentId, 
-                        logDate: modalElement.dataset.logDate 
-                    });
-
                     refreshLogDetailsInModal(); 
 
                     const bsModalInstance = bootstrap.Modal.getInstance(modalElement) || new bootstrap.Modal(modalElement);
@@ -289,59 +292,45 @@
                 }
             });
 
+            // Edit button inside the modal (loads edit form)
             document.addEventListener('click', function(event) {
                 const editButton = event.target.closest('.edit-log-item-btn');
                 if (editButton) {
                     event.preventDefault();
-                    const formUrl = editButton.dataset.formUrl; // This URL should come prefixed from the server
+                    const formUrl = editButton.dataset.formUrl;
                     const logId = editButton.dataset.logId;
 
-                    console.log('Edit log item button clicked:', { formUrl, logId });
-
-                    fetch(formUrl, { // Uses formUrl which should be correctly prefixed
+                    fetch(formUrl, { 
                         method: 'GET',
-                        headers: {
-                            'X-Requested-With': 'XMLHttpRequest'
-                        }
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
                     })
                     .then(response => {
-                        if (!response.ok) {
-                            throw new Error(`HTTP error! status: ${response.status}`);
-                        }
+                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                         return response.text();
                     })
                     .then(html => {
-                        console.log('Edit form HTML received.');
                         const modalBody = document.getElementById('editLogModalBody'); 
                         modalBody.innerHTML = html;
-
                         const modalTitle = document.getElementById('editLogModalLabel'); 
                         modalTitle.textContent = `Edit Log Entry (ID: ${logId})`;
 
                         const form = modalBody.querySelector('form');
                         if (form) {
-                            // The form.action attribute in the fetched HTML should also be correctly prefixed by the server
                             form.addEventListener('submit', function(e) {
                                 e.preventDefault();
                                 const formData = new FormData(form);
-
-                                fetch(form.action, { // Uses form.action which should be correctly prefixed
+                                fetch(form.action, {
                                     method: 'POST',
                                     body: formData,
-                                    headers: {
-                                        'X-Requested-With': 'XMLHttpRequest'
-                                    }
+                                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
                                 })
                                 .then(response => response.json())
                                 .then(data => {
                                     if (data.success) {
-                                        console.log(data.message);
                                         refreshLogDetailsInModal(); 
                                     } else {
                                         alert('Error: ' + (data.error || 'Unknown error during update.'));
-                                        if (data.errors) {
-                                            console.error('Validation errors:', data.errors);
-                                        }
+                                        if (data.errors) console.error('Validation errors:', data.errors);
                                     }
                                 })
                                 .catch(error => {
@@ -355,29 +344,36 @@
                     })
                     .catch(error => {
                         console.error('Error loading edit form:', error);
-                        alert('Error loading edit form. Please check the console for details.');
+                        alert('Error loading edit form. Please check the console.');
                     });
                 }
             });
 
+            // Delete button inside the modal
             document.addEventListener('click', function(event) {
                 const deleteButton = event.target.closest('.delete-log-item-btn');
                 if (deleteButton) {
                     event.preventDefault();
-                    const deleteUrl = deleteButton.dataset.deleteUrl; // This URL should come prefixed from the server
+                    const deleteUrl = deleteButton.dataset.deleteUrl;
 
                     if (confirm('Are you sure you want to delete this log entry?')) {
-                        fetch(deleteUrl, { // Uses deleteUrl which should be correctly prefixed
+                        fetch(deleteUrl, { 
                             method: 'POST', 
                             headers: {
-                                'Content-Type': 'application/json', 
-                                'X-Requested-With': 'XMLHttpRequest'
+                                // 'Content-Type': 'application/json', // Not needed for basic POST if not sending JSON body
+                                'X-Requested-With': 'XMLHttpRequest',
+                                // For Flask-WTF CSRF protection, if enabled globally and for POST:
+                                // 'X-CSRFToken': '{{ csrf_token() if csrf_token else "" }}' // This won't work directly here. CSRF token needs to be handled.
                             }
+                            // If you are using Flask-WTF's CSRF protection on POST for these AJAX deletes,
+                            // you'll need to include the CSRF token. One way is to have it in a meta tag
+                            // and fetch it here, or embed it in a hidden input if these were full forms.
+                            // For simplicity now, assuming CSRF is either not on these specific AJAX POSTs
+                            // or handled via session/cookies for XMLHttpRequest if configured that way.
                         })
                         .then(response => response.json())
                         .then(data => {
                             if (data.success) {
-                                console.log(data.message);
                                 refreshLogDetailsInModal(); 
                             } else {
                                 alert('Error: ' + (data.error || 'Unknown error during deletion.'));
@@ -398,5 +394,4 @@
         });
     </script>
     {% endblock scripts %}
-
 </html>

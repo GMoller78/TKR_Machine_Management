@@ -2,6 +2,7 @@
 import logging
 # Corrected Flask imports
 from flask import render_template, request, redirect, url_for, flash, make_response, session, jsonify
+from flask_login import login_required, current_user
 from urllib.parse import urlencode
 # Corrected datetime imports
 from datetime import datetime, timedelta, timezone, date, time
@@ -16,6 +17,7 @@ from sqlalchemy import cast, Date # Add Date cast
 from app.forms import ChecklistEditForm, UsageLogEditForm 
 
 from app.models import (
+    User,
     Equipment, JobCard, Checklist, StockTransaction,
     JobCardPart, Part, MaintenanceTask, UsageLog,
     MaintenancePlanEntry # <-- Added import
@@ -184,6 +186,7 @@ def predict_task_due_dates_in_range(task, start_date, end_date):
 # === Maintenance Plan Generation Route ===
 # ==============================================================================
 @bp.route('/maintenance_plan/generate', methods=['POST'])
+@login_required
 def generate_maintenance_plan():
     logging.debug("--- Received request to generate maintenance plan ---")
     try:
@@ -261,7 +264,6 @@ def generate_maintenance_plan():
         db.session.rollback()
         logging.error(f"--- Error generating maintenance plan: {e} ---", exc_info=True)
         flash(f"An error occurred while generating the plan: {e}", "danger")
-
     return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
 # ==============================================================================
@@ -382,6 +384,7 @@ def maintenance_plan_pdf():
 # ==============================================================================
 
 @bp.route('/maintenance_plan/detail', methods=['GET'])
+@login_required
 def maintenance_plan_detail_view():
     """
     Displays the detailed maintenance plan for a given month and year,
@@ -575,40 +578,10 @@ def maintenance_plan_detail_view():
         return redirect(url_for('planned_maintenance.maintenance_plan_list_view'))
 
 # ==============================================================================
-# === NEW Route: Print Plan Details (Daily Layout) ===
-# ==============================================================================
-
-# tkr_system/app/routes.py
-
-# ... (Keep all other imports at the top of the file) ...
-from flask import render_template, request, redirect, url_for, flash, make_response, session, jsonify
-from urllib.parse import urlencode
-from datetime import datetime, timedelta, timezone, date, time
-from dateutil.parser import parse as parse_datetime
-from dateutil.relativedelta import relativedelta
-from calendar import monthrange
-from io import BytesIO
-from app.planned_maintenance import bp
-from app import db
-from app.models import (
-    Equipment, JobCard, Checklist, StockTransaction,
-    JobCardPart, Part, MaintenanceTask, UsageLog,
-    MaintenancePlanEntry
-)
-from itertools import zip_longest
-from sqlalchemy import desc, func, extract, and_, or_
-import traceback
-from collections import defaultdict
-import logging # Make sure logging is imported
-
-# ... (Keep Weasyprint setup, helper functions like generate_whatsapp_share_url, etc.) ...
-# ... (Keep the maintenance_plan_detail_view function as rewritten previously) ...
-
-
-# ==============================================================================
 # === Print Plan Details (Daily Layout) (Rewritten with ToDo JCs) ===
 # ==============================================================================
 @bp.route('/maintenance_plan/print_detail', methods=['GET'])
+@login_required
 def print_maintenance_plan_detail():
     """
     Generates an HTML page suitable for printing, displaying the maintenance
@@ -770,6 +743,7 @@ def print_maintenance_plan_detail():
 # ==============================================================================
 
 @bp.route('/maintenance_plan', methods=['GET']) # Route for the list view
+@login_required
 def maintenance_plan_list_view():
     """Displays a list of generated maintenance plans and the form to generate new ones."""
     logging.debug("--- Request for Maintenance Plan List View ---")
@@ -845,6 +819,7 @@ def maintenance_plan_list_view():
                               )
 
 @bp.route('/')
+@login_required
 def dashboard():
     logging.debug("--- Entering dashboard route ---")
     try:
@@ -1102,6 +1077,7 @@ def dashboard():
                                yesterday=date.today() - timedelta(days=1))
 
 @bp.route('/equipment')
+@login_required
 def equipment_list():
     """Displays a list of all equipment, grouped by type."""
     try:
@@ -1150,6 +1126,7 @@ def equipment_list():
                                 current_data={})
 
 @bp.route('/equipment/add', methods=['POST'])
+@login_required
 def add_equipment():
     """Processes the form submission for adding new equipment."""
     code = request.form.get('code', '').strip()
@@ -1219,6 +1196,7 @@ def add_equipment():
         return redirect(url_for('planned_maintenance.equipment_list') + '?' + query_params + '#addEquipmentForm')
 
 @bp.route('/equipment/edit/<int:id>', methods=['GET', 'POST'])
+@login_required
 def edit_equipment(id):
     """Displays the edit form (GET) or processes the update (POST) for equipment."""
     equipment_to_edit = Equipment.query.get_or_404(id)
@@ -1305,6 +1283,7 @@ def edit_equipment(id):
 # === Job cards            ===
 # ==============================================================================
 @bp.route('/job_card_reports/by_technician', methods=['GET'])
+@login_required
 def report_jobs_by_technician():
     """Displays job cards grouped by technician, based on filters."""
     logging.debug("--- Request for Jobs by Technician Report ---")
@@ -1422,6 +1401,7 @@ def report_jobs_by_technician():
         return redirect(url_for('planned_maintenance.job_card_reports_dashboard', **error_filters))
 
 @bp.route('/job_card_reports', methods=['GET'])
+@login_required
 def job_card_reports_dashboard():
     """Displays job card metrics and links to detailed reports."""
     logging.debug("--- Request for Job Card Reports Dashboard ---")
@@ -1553,6 +1533,7 @@ def job_card_reports_dashboard():
 
 
 @bp.route('/job_card/new_from_task/<int:task_id>', methods=['POST'])
+@login_required
 def new_job_card_from_task(task_id):
     try:
         task = MaintenanceTask.query.get_or_404(task_id)
@@ -1631,6 +1612,7 @@ def new_job_card_from_task(task_id):
         return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
 @bp.route('/job_cards', methods=['GET'])
+@login_required
 def job_card_list():
     """Displays a list of job cards with filtering options."""
     logging.debug("--- Request for Job Card List View ---")
@@ -1763,6 +1745,7 @@ def job_card_list():
         )
 
 @bp.route('/job_card/<int:id>', methods=['GET']) # Use GET to view details
+@login_required
 def job_card_detail(id):
     """Displays the details of a single Job Card."""
     logging.debug(f"--- Request to view details for Job Card ID: {id} ---")
@@ -1796,6 +1779,7 @@ def job_card_detail(id):
         return redirect(url_for('planned_maintenance.dashboard'))
 
 @bp.route('/job_card/complete/<int:id>', methods=['GET', 'POST'])
+@login_required
 def complete_job_card(id):
     job_card = JobCard.query.get_or_404(id)
     if job_card.status == 'Done':
@@ -1982,6 +1966,7 @@ def complete_job_card(id):
 #    pass
 
 @bp.route('/job_card/create', methods=['POST'])
+@login_required
 def create_job_card():
     """Processes the form submission for creating a new job card."""
     logging.info("--- Processing POST request to create new Job Card ---")
@@ -2072,6 +2057,7 @@ def create_job_card():
         return redirect(request.referrer or url_for('planned_maintenance.job_card_list'))
 
 @bp.route('/job_card/edit/<int:id>', methods=['GET', 'POST'])
+@login_required
 def edit_job_card(id):
     """Displays the edit form (GET) or processes the update (POST) for a job card."""
     job_card = JobCard.query.get_or_404(id)
@@ -2159,6 +2145,7 @@ def edit_job_card(id):
                            title=f'Edit JC {job_card.job_number}')
 
 @bp.route('/job_card/print/<int:id>')
+@login_required
 def print_job_card(id):
     """Displays a printable version of a job card."""
     logging.debug(f"--- Request to print Job Card ID: {id} ---")
@@ -2186,6 +2173,7 @@ def print_job_card(id):
         return redirect(url_for('planned_maintenance.job_card_detail', id=id))
 
 @bp.route('/job_card/delete/<int:id>', methods=['POST'])
+@login_required
 def delete_job_card(id):
     """Soft-deletes a job card by changing its status to 'Deleted' and logging the reason."""
     job_card = JobCard.query.get_or_404(id)
@@ -2238,6 +2226,7 @@ def delete_job_card(id):
 # ==============================================================================
 
 @bp.route('/checklist/new', methods=['POST'])
+@login_required
 def new_checklist():
     """Logs a new equipment checklist."""
     # This route expects the form to be included elsewhere (e.g., dashboard modal)
@@ -2464,6 +2453,7 @@ def calculate_task_due_status(task, current_time): # Accept current_time (naive 
 # === Tasks List ===
 # ==============================================================================
 @bp.route('/tasks', methods=['GET'])
+@login_required
 def tasks_list():
     logging.debug("--- Entering tasks_list route ---")
     try:
@@ -2638,6 +2628,7 @@ def tasks_list():
 # === Tasks ===
 # ==============================================================================
 @bp.route('/task/add', methods=['GET', 'POST'])
+@login_required
 def add_task():
     """Displays form to add a new task (GET) or processes addition (POST)."""
     if request.method == 'POST':
@@ -2702,6 +2693,7 @@ def add_task():
     return render_template('pm_task_form.html', equipment=equipment_list, title="Add New Task")
 
 @bp.route('/task/edit/<int:id>', methods=['GET', 'POST'])
+@login_required
 def edit_task(id):
     """Displays form to edit a task (GET) or processes update (POST)."""
     task_to_edit = MaintenanceTask.query.get_or_404(id)
@@ -2802,6 +2794,7 @@ def edit_task(id):
 # === Usage Log ===
 # ==============================================================================
 @bp.route('/usage/add', methods=['POST'])
+@login_required
 def add_usage():
     """Adds a usage log entry with enhanced validation."""
     if request.method == 'POST':
@@ -2979,6 +2972,7 @@ def generate_next_job_number(job_type='MAINT'):
 # ==============================================================================
 
 @bp.route('/checklist_logs', methods=['GET'])
+@login_required
 def checklist_logs():
     """Displays checklist logs in a matrix: equipment vs. a 10-day period."""
     logging.debug("--- Request for Checklist Log 10-Day Matrix View ---")
@@ -3098,6 +3092,7 @@ def checklist_logs():
                                **error_template_args)
 
 @bp.route('/usage_logs', methods=['GET'])
+@login_required
 def usage_logs():
     """Displays usage logs in a matrix: equipment vs. a 10-day period."""
     logging.debug("--- Request for Usage Log 10-Day Matrix View ---")
@@ -3208,6 +3203,7 @@ def usage_logs():
 # ==============================================================================
 
 @bp.route('/legal_tasks', methods=['GET'])
+@login_required
 def legal_tasks_list():
     logging.debug("--- Entering legal_tasks_list route ---")
     try:
@@ -3399,6 +3395,7 @@ def legal_tasks_list():
 # === Add/Edit Legal Compliance Task ===
 # ==============================================================================
 @bp.route('/legal_task/add', methods=['GET', 'POST'])
+@login_required
 def add_legal_task():
 
     """Displays form to add a new legal compliance task (GET) or processes addition (POST)."""
@@ -3467,6 +3464,7 @@ def add_legal_task():
 
 # === AJAX Endpoint to get logs for modal ===
 @bp.route('/logs/get_for_cell', methods=['GET'])
+@login_required
 def get_logs_for_cell():
     log_type = request.args.get('log_type')
     equipment_id = request.args.get('equipment_id', type=int)
@@ -3531,6 +3529,7 @@ def get_logs_for_cell():
 
 # === Route to RENDER Checklist Log Edit Form ===
 @bp.route('/checklist/edit/<int:log_id>', methods=['GET'])
+@login_required
 def edit_checklist_log_form(log_id):
     log = Checklist.query.get_or_404(log_id)
     form = ChecklistEditForm(obj=log)
@@ -3543,6 +3542,7 @@ def edit_checklist_log_form(log_id):
 
 # === Route to PROCESS Checklist Log Update ===
 @bp.route('/checklist/update/<int:log_id>', methods=['POST'])
+@login_required
 def update_checklist_log(log_id):
     log = Checklist.query.get_or_404(log_id)
     try:
@@ -3565,6 +3565,7 @@ def update_checklist_log(log_id):
 
 # === Route to RENDER Usage Log Edit Form ===
 @bp.route('/usage/edit/<int:log_id>', methods=['GET'])
+@login_required
 def edit_usage_log_form(log_id):
     log = UsageLog.query.get_or_404(log_id)
     form = UsageLogEditForm(obj=log)
@@ -3577,6 +3578,7 @@ def edit_usage_log_form(log_id):
 
 # === Route to PROCESS Usage Log Update ===
 @bp.route('/usage/update/<int:log_id>', methods=['POST'])
+@login_required
 def update_usage_log(log_id):
     log = UsageLog.query.get_or_404(log_id)
     try:
@@ -3596,6 +3598,7 @@ def update_usage_log(log_id):
 
 # === Route to PROCESS Usage Log Deletion ===
 @bp.route('/usage/delete/<int:log_id>', methods=['POST'])
+@login_required
 def delete_usage_log(log_id):
     log = UsageLog.query.get_or_404(log_id)
     try:
@@ -3612,6 +3615,7 @@ def delete_usage_log(log_id):
 
 # === Route to PROCESS Checklist Log Deletion ===
 @bp.route('/checklist/delete/<int:log_id>', methods=['POST'])
+@login_required
 def delete_checklist_log(log_id):
     log = Checklist.query.get_or_404(log_id)
     try:

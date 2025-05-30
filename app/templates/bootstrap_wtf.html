@@ -1,0 +1,68 @@
+{# app/templates/bootstrap_wtf.html #}
+{% macro quick_form(form, action_url='', form_type='basic', horizontal_columns=('lg', 2, 10), button_map={}) %}
+<form method="POST" action="{{ action_url or request.path }}" role="form" novalidate>
+    {{ form.hidden_tag() }}
+    {{ form_errors(form, hiddens='only') }}
+
+    {% for field in form if not field.flags.hidden %}
+        {% if field.type == 'BooleanField' %}
+            <div class="mb-3 form-check">
+                {{ field(class="form-check-input" + (" is-invalid" if field.errors else "")) }}
+                {{ field.label(class="form-check-label") }}
+                {% if field.errors %}
+                    <div class="invalid-feedback">
+                        {% for error in field.errors %}<div>{{ error }}</div>{% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        {% elif field.type == 'RadioField' %}
+            <div class="mb-3">
+                {{ field.label(class="form-label fw-bold") }}
+                {% for subfield in field %}
+                    <div class="form-check">
+                        {{ subfield(class="form-check-input" + (" is-invalid" if field.errors else "")) }}
+                        {{ subfield.label(class="form-check-label") }}
+                    </div>
+                {% endfor %}
+                {% if field.errors %}
+                    <div class="invalid-feedback d-block"> {# d-block for radio errors #}
+                        {% for error in field.errors %}<div>{{ error }}</div>{% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        {% elif field.type == 'SubmitField' %}
+            <div class="d-grid"> {# For full-width button, or adjust as needed #}
+              {{ field(class="btn " + (button_map.get(field.id, 'btn-primary'))) }}
+            </div>
+        {% else %}
+            <div class="mb-3">
+                {{ field.label(class="form-label") }}
+                {{ field(class="form-control" + (" is-invalid" if field.errors else "")) }}
+                {% if field.errors %}
+                    <div class="invalid-feedback">
+                        {% for error in field.errors %}<div>{{ error }}</div>{% endfor %}
+                    </div>
+                {% endif %}
+                {% if field.description %}
+                    <small class="form-text text-muted">{{ field.description }}</small>
+                {% endif %}
+            </div>
+        {% endif %}
+    {% endfor %}
+</form>
+{% endmacro %}
+
+{% macro form_errors(form, hiddens=True) %}
+  {% if form.errors %}
+    {% for fieldname, errors in form.errors.items() %}
+      {% if not hiddens or form[fieldname].flags.hidden %}
+        {% for error in errors %}
+          <div class="alert alert-danger alert-dismissible fade show" role="alert">
+              {{error}}
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+{% endmacro %}
