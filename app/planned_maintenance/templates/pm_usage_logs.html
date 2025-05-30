@@ -72,16 +72,27 @@
                                 {% set cell_data = processed_data.get(eq.id, {}).get(day_date) %}
                                 <td class="text-center align-middle position-relative {% if day_date.isoformat() == today_iso %} table-info{% endif %}">
                                     {% if cell_data and cell_data.count > 0 %}
-                                        {% set tooltip_title = 'Total: ' ~ ('%.1f'|format(cell_data.total)) ~ ' ' ~ (eq.usage_unit if eq.usage_unit else '') ~ '\nCount: ' ~ cell_data.count %}
-                                        <span
-                                            class="badge bg-primary"
-                                            data-bs-toggle="tooltip"
-                                            data-bs-placement="top"
-                                            data-bs-html="true"
-                                            title="{{ tooltip_title }}"
-                                        >
-                                            {{ '%.1f'|format(cell_data.total) }}{% if eq.usage_unit %} {{ eq.usage_unit[:1] }}{% endif %}
-                                        </span>
+                                        {% if cell_data.latest_value is not none %}
+                                            {# Construct tooltip title #}
+                                            {% set latest_value_str = '%.1f'|format(cell_data.latest_value) %}
+                                            {% set unit_str = ((' ' ~ eq.usage_unit) if eq.usage_unit else '') %}
+                                            {% set time_str = (' at ' ~ cell_data.latest_timestamp_utc.strftime('%H:%M UTC')) if cell_data.latest_timestamp_utc else '' %}
+                                            {% set tooltip_title = 'Latest: ' ~ latest_value_str ~ unit_str ~ time_str ~ '\nCount: ' ~ cell_data.count %}
+                                            
+                                            <span
+                                                class="badge bg-primary"
+                                                data-bs-toggle="tooltip"
+                                                data-bs-placement="top"
+                                                data-bs-html="true"
+                                                title="{{ tooltip_title }}"
+                                            >
+                                                {{ latest_value_str }}{% if eq.usage_unit %} {{ eq.usage_unit[:1] }}{% endif %}
+                                            </span>
+                                        {% else %}
+                                            {# Case: logs exist, but latest_value is None (e.g. DB had NULL) #}
+                                            <span class="badge bg-secondary" data-bs-toggle="tooltip" title="Latest value not recorded. Count: {{ cell_data.count }}">N/A</span>
+                                        {% endif %}
+                                        
                                         <span class="badge bg-light text-dark border ms-1" style="font-size: 0.8em;">
                                             {{ cell_data.count }}
                                         </span>

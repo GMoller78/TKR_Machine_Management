@@ -3188,8 +3188,8 @@ def checklist_logs():
 @bp.route('/usage_logs', methods=['GET'])
 @login_required
 def usage_logs():
-    """Displays usage logs in a matrix: equipment vs. a 10-day period."""
-    logging.debug("--- Request for Usage Log 10-Day Matrix View ---")
+    """Displays usage logs in a matrix: equipment vs. a 10-day period, showing latest value and count."""
+    logging.debug("--- Request for Usage Log 10-Day Matrix View (Latest Value Mode) ---")
     try:
         today = date.today()
         start_date_str_param = request.args.get('start_date_str')
@@ -3201,7 +3201,7 @@ def usage_logs():
                 flash("Invalid start date format in URL. Showing default period.", "warning")
                 current_start_date = today - timedelta(days=9)
         else:
-            current_start_date = today - timedelta(days=9)
+            current_start_date = today - timedelta(days=9) # Default: 10 days ending today
 
         current_end_date = current_start_date + timedelta(days=9)
         dates_in_range = [current_start_date + timedelta(days=i) for i in range(10)]
@@ -3239,31 +3239,47 @@ def usage_logs():
             UsageLog.log_date <= range_end_dt_utc
         ).options(
             db.joinedload(UsageLog.equipment_ref)
-        ).order_by(
+        ).order_by( # Crucial: order by log_date ASC to easily get the latest by overwriting
             UsageLog.equipment_id,
-            UsageLog.log_date
+            UsageLog.log_date # Ascending order means later logs for the same day come later
         )
         relevant_logs = relevant_logs_query.all()
         logging.debug(f"Found {len(relevant_logs)} usage logs within the date range.")
 
-        processed_data = defaultdict(lambda: defaultdict(lambda: {'count': 0, 'total': 0.0, 'logs': []}))
+        # Initialize processed_data to store count, latest_value, and latest_timestamp_utc
+        processed_data = defaultdict(lambda: defaultdict(lambda: {
+            'count': 0, 
+            'latest_value': None, 
+            'latest_timestamp_utc': None, # Store the actual datetime object
+            'logs': [] # For the modal
+        }))
+
         for log in relevant_logs:
             eq_id = log.equipment_id
             log_date_utc = log.log_date
+            # Ensure log_date_utc is timezone-aware (UTC)
             if log_date_utc.tzinfo is None:
                 log_date_utc = log_date_utc.replace(tzinfo=timezone.utc)
             else:
                 log_date_utc = log_date_utc.astimezone(timezone.utc)
-            log_date_only = log_date_utc.date()
+            
+            log_date_only = log_date_utc.date() # Key for the inner dictionary
 
             if current_start_date <= log_date_only <= current_end_date:
                 cell_data = processed_data[eq_id][log_date_only]
                 cell_data['count'] += 1
-                cell_data['total'] += log.usage_value
+                
+                # Since logs are ordered by log_date ascending,
+                # the current log's value will overwrite previous ones for the same day,
+                # effectively storing the latest.
+                cell_data['latest_value'] = log.usage_value
+                cell_data['latest_timestamp_utc'] = log_date_utc # Store the datetime object
+                
                 cell_data['logs'].append({
                     'id': log.id, 'value': log.usage_value,
-                    'timestamp': log_date_utc.strftime('%Y-%m-%d %H:%M UTC')
+                    'timestamp': log_date_utc.strftime('%Y-%m-%d %H:%M UTC') # Formatted for modal
                 })
+        
         logging.debug(f"Processed usage data structure contains entries for {len(processed_data)} equipment.")
         view_title = f'Usage Logs: {current_start_date.strftime("%b %d")} - {current_end_date.strftime("%b %d, %Y")}'
 
@@ -3290,8 +3306,6 @@ def usage_logs():
                                error=f"Could not load logs: {e}",
                                title='Usage Log Matrix - Error',
                                **error_template_args)
-
-
 # ==============================================================================
 # === Legal Compliance Tasks List ===
 # ==============================================================================
