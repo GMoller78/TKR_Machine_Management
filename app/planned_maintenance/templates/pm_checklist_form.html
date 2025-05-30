@@ -1,7 +1,7 @@
 {# Partial Form for Checklist Logging #}
 {# Assumes 'equipment' list is passed to the template rendering this partial #}
 <div class="card mb-4">
-    <div class="card-header">Log Daily Checklist</div>
+    <div class="card-header">Log Daily Checklist & Usage</div> {# <--- Changed header slightly #}
     <div class="card-body">
         <form method="POST" action="{{ url_for('planned_maintenance.new_checklist') }}">
              <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
@@ -10,12 +10,12 @@
                  <select class="form-select" id="cl_equipment_id" name="equipment_id" required>
                      <option value="" selected disabled>Select Equipment...</option>
                      {% for item in equipment if item.checklist_required %} {# Only show equipment requiring checklists #}
-                         <option value="{{ item.id }}">{{ item.name }} ({{ item.type }})</option>
+                         <option value="{{ item.id }}">{{ item.code }} - {{ item.name }} ({{ item.type }})</option>
                      {% endfor %}
                  </select>
             </div>
             <div class="mb-3">
-                 <label class="form-label">Status <span class="text-danger">*</span></label>
+                 <label class="form-label">Checklist Status <span class="text-danger">*</span></label> {# <--- Clarified label #}
                  <div>
                     <div class="form-check form-check-inline">
                       <input class="form-check-input" type="radio" name="status" id="status_go" value="Go" required>
@@ -32,17 +32,37 @@
                  </div>
             </div>
              <div class="mb-3">
-                <label for="cl_issues" class="form-label">Issues Noted (Optional)</label>
+                <label for="cl_issues" class="form-label">Checklist Issues Noted (Optional)</label>
                 <textarea class="form-control" id="cl_issues" name="issues" rows="2" placeholder="Describe any issues found..."></textarea>
             </div>
-            <button type="submit" class="btn btn-primary">Log Checklist</button>
+
+            {# --- NEW: Usage Value Input --- #}
+            <div class="mb-3">
+                <label for="cl_usage_value" class="form-label">Current Usage Value (Hours/KM) (Optional)</label>
+                <input type="number" step="any" class="form-control" id="cl_usage_value" name="usage_value_for_checklist" placeholder="e.g., 1250.5 (Leave blank if not logging usage)">
+                <small class="form-text text-muted">If provided, usage will be logged with the same date/time as the checklist.</small>
+            </div>
+            {# --- END NEW: Usage Value Input --- #}
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="cl_operator" class="form-label">Operator Name <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="cl_operator" name="operator" required placeholder="Enter operator's name">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label for="cl_check_date" class="form-label">Checklist Date & Time <span class="text-danger">*</span></label>
+                    <input type="datetime-local" class="form-control" id="cl_check_date" name="check_date" required>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Log Checklist & Usage</button> {# <--- Changed button text #}
         </form>
     </div>
 </div>
 
-{# --- Optional: Add Usage Log Form --- #}
+{# --- Optional: Add Usage Log Form (Modified to require log_date) --- #}
 <div class="card mb-4">
-    <div class="card-header">Log Equipment Usage</div>
+    <div class="card-header">Log Equipment Usage (Separately)</div> {# <--- Clarified header #}
     <div class="card-body">
          <form method="POST" action="{{ url_for('planned_maintenance.add_usage') }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
@@ -52,7 +72,7 @@
                          <select class="form-select" id="usage_equipment_id" name="equipment_id" required>
                              <option value="" selected disabled>Select Equipment...</option>
                              {% for item in equipment %} {# Show all equipment #}
-                                 <option value="{{ item.id }}">{{ item.name }} ({{ item.type }})</option>
+                                 <option value="{{ item.id }}">{{ item.code }} - {{ item.name }} ({{ item.type }})</option>
                              {% endfor %}
                          </select>
                    </div>
@@ -60,11 +80,10 @@
                          <label for="usage_value" class="form-label">Usage Value (Hours/KM) <span class="text-danger">*</span></label>
                          <input type="number" step="any" class="form-control" id="usage_value" name="usage_value" required placeholder="e.g., 1250.5">
                    </div>
-                   {# Optional: Date input if needed, otherwise defaults to now #}
-                   {# <div class="col-md-6 mb-3">
-                        <label for="log_date" class="form-label">Log Date (Optional)</label>
-                        <input type="datetime-local" class="form-control" id="log_date" name="log_date">
-                   </div> #}
+                   <div class="col-md-6 mb-3">
+                        <label for="log_date" class="form-label">Log Date & Time <span class="text-danger">*</span></label>
+                        <input type="datetime-local" class="form-control" id="log_date" name="log_date" required>
+                   </div>
               </div>
                <button type="submit" class="btn btn-info">Log Usage</button>
          </form>

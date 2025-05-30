@@ -2228,40 +2228,42 @@ def delete_job_card(id):
 @bp.route('/checklist/new', methods=['POST'])
 @login_required
 def new_checklist():
-    """Logs a new equipment checklist."""
-    # This route expects the form to be included elsewhere (e.g., dashboard modal)
+    """Logs a new equipment checklist and optionally logs usage."""
     if request.method == 'POST':
+        logging.debug("--- NEW CHECKLIST SUBMISSION ---")
+        logging.debug(f"Form data received: {request.form}")
         try:
+            # --- Checklist Data ---
             equipment_id = request.form.get('equipment_id', type=int)
             status = request.form.get('status')
-            issues = request.form.get('issues') # Optional
-            check_date_str = request.form.get('check_date')
-            # *** Get the new operator name ***
-            operator_name = request.form.get('operator', '').strip() # Get and strip whitespace
+            issues = request.form.get('issues', '').strip() # Optional, default to empty string
+            check_date_str = request.form.get('check_date') # This comes from datetime-local
+            operator_name = request.form.get('operator', '').strip()
 
-            # *** Update validation ***
+            # --- Validation for Checklist Data ---
             if not equipment_id or not status or not check_date_str or not operator_name:
-                # Updated error message
-                flash('Equipment, Status, Check Date/Time, and Operator Name are required for checklist.', 'warning')
+                flash('Equipment, Checklist Status, Checklist Date/Time, and Operator Name are required.', 'warning')
                 return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
-            # Validate status value
             valid_statuses = ["Go", "Go But", "No Go"]
             if status not in valid_statuses:
-                flash(f'Invalid status "{status}" selected.', 'warning')
+                flash(f'Invalid checklist status "{status}" selected.', 'warning')
                 return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
-            # *** Parse and Validate Date/Time *** (Existing code)
+            check_date_utc = None
             try:
-                parsed_dt = parse_datetime(check_date_str)
-                check_date_utc = parsed_dt.replace(tzinfo=timezone.utc)
-                logging.debug(f"Parsed check date string '{check_date_str}' to naive {parsed_dt}, assumed UTC: {check_date_utc} ({check_date_utc.tzinfo})")
+                parsed_dt = parse_datetime(check_date_str) 
+                if parsed_dt.tzinfo is None:
+                    check_date_utc = parsed_dt.replace(tzinfo=timezone.utc)
+                else:
+                    check_date_utc = parsed_dt.astimezone(timezone.utc)
+                logging.debug(f"Parsed check_date_str '{check_date_str}' to UTC: {check_date_utc}")
             except ValueError:
-                flash("Invalid Check Date/Time format submitted.", "warning")
+                flash("Invalid Checklist Date/Time format submitted.", "warning")
                 return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
             except Exception as parse_err:
                 logging.error(f"Error parsing check_date '{check_date_str}': {parse_err}", exc_info=True)
-                flash(f"Error parsing check date: {parse_err}", "danger")
+                flash(f"Error parsing checklist date: {parse_err}", "danger")
                 return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
             equipment = Equipment.query.get(equipment_id)
@@ -2269,29 +2271,119 @@ def new_checklist():
                  flash('Selected equipment not found.', 'danger')
                  return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
-            # *** Update Checklist creation to include operator ***
-            new_log = Checklist(
+            # Create Checklist object
+            new_checklist_log = Checklist(
                 equipment_id=equipment_id,
                 status=status,
                 issues=issues,
-                check_date=check_date_utc,
-                operator=operator_name # Add the operator name here
+                check_date=check_date_utc, # Store as UTC
+                operator=operator_name
             )
-            db.session.add(new_log)
-            db.session.commit()
-            # Updated flash message
-            flash(f'Checklist logged successfully by {operator_name} for {equipment.name} with status "{status}" at {check_date_utc.strftime("%Y-%m-%d %H:%M UTC")}.', 'success')
+            db.session.add(new_checklist_log)
+            logging.info(f"Checklist prepared for {equipment.code} (ID: {equipment_id}) by {operator_name} at {check_date_utc.strftime('%Y-%m-%d %H:%M UTC')}.")
+
+            # --- Process Optional Usage Log Data ---
+            usage_value_str = request.form.get('usage_value_for_checklist', '').strip()
+            usage_logged_successfully = False
+            usage_log_entry_to_add = None # To hold the usage log object if valid
+            usage_value_for_flash = None
+
+            if usage_value_str:
+                logging.debug(f"Attempting to log usage value '{usage_value_str}' with checklist for equipment {equipment_id}")
+                try:
+                    usage_value = float(usage_value_str)
+                    usage_value_for_flash = usage_value
+                    if usage_value < 0:
+                        flash("Usage Value (if provided with checklist) cannot be negative. Usage not logged.", "warning")
+                    else:
+                        usage_log_date_dt = check_date_utc # Use the same UTC datetime as the checklist
+
+                        # --- Validation for Usage Log (adapted from add_usage route) ---
+                        # 1. Duplicate UsageLog check
+                        existing_usage_log_at_same_time = UsageLog.query.filter_by(
+                            equipment_id=equipment_id,
+                            log_date=usage_log_date_dt 
+                        ).first()
+                        if existing_usage_log_at_same_time:
+                            flash(f"A usage log for {equipment.code} already exists at {usage_log_date_dt.strftime('%Y-%m-%d %H:%M UTC')}. Usage submitted with checklist not logged again.", "info")
+                        else:
+                            previous_usage_log = UsageLog.query.filter(
+                                UsageLog.equipment_id == equipment_id,
+                                UsageLog.log_date < usage_log_date_dt 
+                            ).order_by(UsageLog.log_date.desc()).first()
+
+                            next_usage_log = UsageLog.query.filter(
+                                UsageLog.equipment_id == equipment_id,
+                                UsageLog.log_date > usage_log_date_dt
+                            ).order_by(UsageLog.log_date.asc()).first()
+
+                            valid_usage_entry = True
+                            if previous_usage_log and usage_value < previous_usage_log.usage_value:
+                                prev_log_time_str = previous_usage_log.log_date.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+                                flash(f"Usage value ({usage_value:.2f}) with checklist is less than previous log ({previous_usage_log.usage_value:.2f} on {prev_log_time_str}). Usage not logged.", "warning")
+                                valid_usage_entry = False
+                            elif next_usage_log and usage_value > next_usage_log.usage_value:
+                                next_log_time_str = next_usage_log.log_date.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+                                flash(f"Usage value ({usage_value:.2f}) with checklist is greater than next log ({next_usage_log.usage_value:.2f} on {next_log_time_str}). Usage not logged.", "warning")
+                                valid_usage_entry = False
+                            
+                            if valid_usage_entry and previous_usage_log:
+                                usage_difference = usage_value - previous_usage_log.usage_value
+                                prev_log_date_utc_val = previous_usage_log.log_date.astimezone(timezone.utc)
+                                calendar_days_spanned = (usage_log_date_dt.date() - prev_log_date_utc_val.date()).days
+                                
+                                if calendar_days_spanned == 0 and usage_difference > MAX_REASONABLE_DAILY_USAGE_INCREASE:
+                                    flash(f"Usage increase ({usage_difference:.2f}) with checklist on same day is too high (max {MAX_REASONABLE_DAILY_USAGE_INCREASE:.2f}). Usage not logged.", "warning")
+                                    valid_usage_entry = False
+                                elif calendar_days_spanned > 0:
+                                    max_allowed_increase = MAX_REASONABLE_DAILY_USAGE_INCREASE * calendar_days_spanned
+                                    if usage_difference > max_allowed_increase:
+                                        flash(f"Usage increase ({usage_difference:.2f}) with checklist over {calendar_days_spanned} day(s) is too high (max {max_allowed_increase:.2f}). Usage not logged.", "warning")
+                                        valid_usage_entry = False
+                                
+                            if valid_usage_entry:
+                                usage_log_entry_to_add = UsageLog(
+                                    equipment_id=equipment_id,
+                                    usage_value=usage_value,
+                                    log_date=usage_log_date_dt # Store as UTC
+                                )
+                                logging.info(f"Usage log entry prepared to be added with checklist: Eq ID {equipment_id}, Val {usage_value}, Date {usage_log_date_dt.strftime('%Y-%m-%d %H:%M UTC')}")
+                
+                except ValueError: # For float conversion
+                    flash("Invalid Usage Value format provided with checklist (must be a number). Usage not logged.", "warning")
+                except Exception as usage_exc: # Catch any other errors during usage processing
+                    logging.error(f"Error processing usage log part of checklist submission: {usage_exc}", exc_info=True)
+                    flash(f"Unexpected error with usage data: {usage_exc}. Usage not logged.", "warning")
+            
+            # Add usage log to session if it's valid and created
+            if usage_log_entry_to_add:
+                db.session.add(usage_log_entry_to_add)
+                usage_logged_successfully = True
+
+
+            # --- Commit to Database ---
+            # This will commit the checklist and the usage log if it was added to the session
+            db.session.commit() 
+            logging.info("Database commit successful for new_checklist route.")
+
+            # --- Flash Messages based on success ---
+            checklist_flash_msg = f'Checklist (Status: "{status}") logged by {operator_name} for {equipment.code} at {check_date_utc.strftime("%Y-%m-%d %H:%M UTC")}.'
+            if usage_logged_successfully:
+                flash(f'{checklist_flash_msg} Usage ({usage_value_for_flash:.2f}) also logged.', 'success')
+            else:
+                flash(checklist_flash_msg, 'success')
+                if usage_value_str: # If usage was attempted but failed validation or had an error
+                    flash("Associated usage data was NOT logged. Please check other messages for details or log it separately if needed.", "info")
 
         except Exception as e:
-            db.session.rollback()
-            logging.error(f"Error logging checklist: {e}", exc_info=True)
-            flash(f"Error logging checklist: {e}", "danger")
+            db.session.rollback() # Rollback on any general error during the whole process
+            logging.error(f"General error in new_checklist route: {e}", exc_info=True)
+            flash(f"An error occurred while logging the checklist: {e}", "danger")
 
         return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
-    # If accessed via GET, just redirect away
+    # If accessed via GET (should not happen with a POST-only route, but good practice)
     return redirect(url_for('planned_maintenance.dashboard'))
-
 # ==============================================================================
 # === Task Status Calculation ===
 # ==============================================================================
@@ -2793,19 +2885,20 @@ def edit_task(id):
 # ==============================================================================
 # === Usage Log ===
 # ==============================================================================
+
 @bp.route('/usage/add', methods=['POST'])
 @login_required
 def add_usage():
-    """Adds a usage log entry with enhanced validation."""
+    """Adds a usage log entry with enhanced validation. (For separate usage logging)"""
     if request.method == 'POST':
         try:
             equipment_id = request.form.get('equipment_id', type=int)
             usage_value_str = request.form.get('usage_value')
-            log_date_str = request.form.get('log_date') # Optional, defaults to now
+            log_date_str = request.form.get('log_date') # Now required for this form
 
             # Basic form data validation
-            if not equipment_id or not usage_value_str:
-                flash("Equipment and Usage Value are required.", "warning")
+            if not equipment_id or not usage_value_str or not log_date_str:
+                flash("Equipment, Usage Value, and Log Date/Time are required.", "warning")
                 return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
             try:
@@ -2818,17 +2911,22 @@ def add_usage():
                  return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
             # Parse log_date_str to a timezone-aware UTC datetime object
-            log_date_dt = datetime.now(timezone.utc) # Default to now (UTC)
-            if log_date_str:
-                try:
-                    parsed_naive = parse_datetime(log_date_str)
-                    log_date_dt = parsed_naive.replace(tzinfo=timezone.utc) # Assume naive input is UTC
-                    logging.debug(f"Parsed usage log_date string '{log_date_str}' to UTC: {log_date_dt}")
-                except ValueError:
-                    flash("Invalid Log Date format. Using current UTC time.", "info")
-                except Exception as parse_err:
-                    logging.error(f"Error parsing usage log_date '{log_date_str}': {parse_err}", exc_info=True)
-                    flash(f"Error parsing log date: {parse_err}. Using current UTC time.", "warning")
+            log_date_dt = None # Initialize
+            try:
+                parsed_naive = parse_datetime(log_date_str) # From datetime-local input
+                # Assume naive input is UTC, make it timezone-aware UTC.
+                if parsed_naive.tzinfo is None:
+                    log_date_dt = parsed_naive.replace(tzinfo=timezone.utc)
+                else: # If parse_datetime somehow made it aware (e.g. 'Z' or offset in string)
+                    log_date_dt = parsed_naive.astimezone(timezone.utc)
+                logging.debug(f"Parsed usage log_date string '{log_date_str}' to UTC: {log_date_dt}")
+            except ValueError:
+                flash("Invalid Log Date/Time format.", "warning")
+                return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
+            except Exception as parse_err:
+                logging.error(f"Error parsing usage log_date '{log_date_str}': {parse_err}", exc_info=True)
+                flash(f"Error parsing log date: {parse_err}.", "warning")
+                return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
             
             # Ensure equipment exists
             equipment = Equipment.query.get(equipment_id)
@@ -2839,23 +2937,21 @@ def add_usage():
             # --- Validation 1: Prevent duplicate records (same machine, same datetime) ---
             existing_log_at_same_time = UsageLog.query.filter_by(
                 equipment_id=equipment_id, 
-                log_date=log_date_dt
+                log_date=log_date_dt # Compare UTC with UTC
             ).first()
             if existing_log_at_same_time:
                 flash(f"A usage log for {equipment.code} already exists at {log_date_dt.strftime('%Y-%m-%d %H:%M:%S %Z')}.", "warning")
                 return redirect(request.referrer or url_for('planned_maintenance.dashboard'))
 
             # --- Fetch previous and next logs for chronological validation ---
-            # Previous log: latest log strictly before the new log's datetime
             previous_log = UsageLog.query.filter(
                 UsageLog.equipment_id == equipment_id,
-                UsageLog.log_date < log_date_dt
+                UsageLog.log_date < log_date_dt # Compare UTC with UTC
             ).order_by(UsageLog.log_date.desc()).first()
 
-            # Next log: earliest log strictly after the new log's datetime
             next_log = UsageLog.query.filter(
                 UsageLog.equipment_id == equipment_id,
-                UsageLog.log_date > log_date_dt
+                UsageLog.log_date > log_date_dt # Compare UTC with UTC
             ).order_by(UsageLog.log_date.asc()).first()
 
             # --- Validation 2a: Usage cannot be less than previously recorded ---
@@ -2883,11 +2979,8 @@ def add_usage():
                 else:
                     prev_log_date_utc = prev_log_date_utc.astimezone(timezone.utc)
 
-                # Calculate calendar days spanned
                 calendar_days_spanned = (log_date_dt.date() - prev_log_date_utc.date()).days
-                
                 current_max_increase_threshold = MAX_REASONABLE_DAILY_USAGE_INCREASE
-                # Future enhancement: current_max_increase_threshold could be set based on equipment.usage_unit
                 
                 if calendar_days_spanned == 0: # Same calendar day
                     if usage_difference > current_max_increase_threshold:
@@ -2905,10 +2998,10 @@ def add_usage():
                 # No 'else' needed for calendar_days_spanned < 0, as previous_log query ensures it's earlier.
 
             # All validations passed, create and save the log
-            new_usage_log = UsageLog(equipment_id=equipment_id, usage_value=usage_value, log_date=log_date_dt)
+            new_usage_log = UsageLog(equipment_id=equipment_id, usage_value=usage_value, log_date=log_date_dt) # Store UTC
             db.session.add(new_usage_log)
             db.session.commit()
-            flash("Usage log added successfully.", "success")
+            flash(f"Usage log for {equipment.code} added successfully for {log_date_dt.strftime('%Y-%m-%d %H:%M UTC')}.", "success")
 
         except Exception as e:
             db.session.rollback()
@@ -2919,6 +3012,7 @@ def add_usage():
 
     # If accessed via GET, just redirect away
     return redirect(url_for('planned_maintenance.dashboard'))
+
 # ==============================================================================
 # === Create Job Card From Task ===
 # ==============================================================================
