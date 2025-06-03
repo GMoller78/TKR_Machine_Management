@@ -8,7 +8,7 @@ class Config:
     # Option 1: Using a single DATABASE_URL environment variable (Recommended for production)
     # Example: postgresql://user:password@host:port/dbname
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
-        f"postgresql://{os.environ.get('PGUSER', 'postgres')}:{os.environ.get('PGPASSWORD', 'anikaM0404')}@" \
+        f"postgresql://{os.environ.get('PGUSER', 'postgres')}:{os.environ.get('PGPASSWORD', 'AnikaM0404')}@" \
         f"{os.environ.get('PGHOST', 'localhost')}:{os.environ.get('PGPORT', '5432')}/" \
         f"{os.environ.get('PGDATABASE', 'tkr_pm_db')}"
 
