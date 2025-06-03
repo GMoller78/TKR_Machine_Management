@@ -1,21 +1,21 @@
-# tkr_system/config.py
+# config.py
 import os
 
-# Determine the base directory of the project
-basedir = os.path.abspath(os.path.dirname(__file__))
-# Define the path to the instance folder
-instance_path = os.path.join(basedir, 'instance')
-
-# Ensure the instance folder exists
-os.makedirs(instance_path, exist_ok=True)
-
 class Config:
-    """Base configuration settings."""
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'a-very-secure-dev-key-replace-me') # Use environment variable in production!
-    
-    # Define the SQLite database URI relative to the instance folder
-    # Flask-SQLAlchemy automatically prefixes this with 'instance/' when instance_relative_config=True
+    SECRET_KEY = os.environ.get('SECRET_KEY') or 'your-very-secret-key-in-development'
+
+    # PostgreSQL Database Configuration
+    # Option 1: Using a single DATABASE_URL environment variable (Recommended for production)
+    # Example: postgresql://user:password@host:port/dbname
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
-        'sqlite:///' + os.path.join(instance_path, 'tkr.db')
-        
-    SQLALCHEMY_TRACK_MODIFICATIONS = False # Disable modification tracking to save resources
+        f"postgresql://{os.environ.get('PGUSER', 'postgres')}:{os.environ.get('PGPASSWORD', 'anikaM0404')}@" \
+        f"{os.environ.get('PGHOST', 'localhost')}:{os.environ.get('PGPORT', '5432')}/" \
+        f"{os.environ.get('PGDATABASE', 'tkr_pm_db')}"
+
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    # Optional: If you want to see the SQL queries SQLAlchemy executes (good for debugging)
+    # SQLALCHEMY_ECHO = True
+
+    # Ensure your other configurations (if any) are also here
+    # For example, if you had mail server settings, etc.
